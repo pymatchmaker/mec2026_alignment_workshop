@@ -207,3 +207,9 @@ marimo/_lsp/
 __marimo__/
 
 .DS_Store
+# Offline-alignment notebook runtime artifacts (do not commit)
+# YouTube-downloaded caches and TSM sonifications land in the repo root.
+/*.wav
+/warping_path.csv
+/sonic_visualiser_*.csv
+results/
