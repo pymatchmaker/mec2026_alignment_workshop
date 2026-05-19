@@ -8,6 +8,12 @@ Music lives in the interplay of different representations: from printed sheet mu
 
 In this half-day workshop we will provide a practical, hands-on overview of music alignment. The workshop will consist of a comprehensive overview of alignment technologies for both symbolic music and audio, including a practical presentation of tools, datasets and formats for representing alignments. Rather than focusing primarily on the technical aspects of alignment algorithms, we will focus on practical aspects of using alignment for the purpose of music analysis in different contexts, showcasing pipelines, open-source tools and applications.
 
+## LICENSE
+
+Unless indicated otherwise, the code contained in this repository is distributed under the Apache 2.0 license (see [LICENSE](./LICENSE)).
+
+Data contained in this repository (e.g., audio, MIDI, etc.), unless indicated otherwise, is released under the [CC BY-NC-SA license](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+
 ## Acknowledgements
 
 This work was supported by the Austrian Science Fund (FWF) under grants PAT 8820923 (“Rach3”) and PIN1347924 (“AURA”), the National Research Foundation of Korea (NRF) funded by the Korean government (MSIT) under Grant RS-2023-NR077289, and the European Research Council (ERC) under the EU’s Horizon 2020 programme (Grant No. 101019375, “Whither Music?”).
