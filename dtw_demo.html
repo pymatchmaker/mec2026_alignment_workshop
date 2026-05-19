@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script>
+  (function(){
+    const t = localStorage.getItem('theme') ||
+      (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dynamic Time Warping — Music Alignment Visualization</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e2e4ea;
+    --text-muted: #8b8fa3;
+    --accent: #6c63ff;
+    --accent-glow: rgba(108, 99, 255, 0.3);
+    --note-a: #ff6b8a;
+    --note-b: #4ecdc4;
+    --path: #ffd93d;
+    --cell-low: #1a2332;
+    --cell-high: #4a1942;
+    --font: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  html[data-theme="light"] {
+    --bg: #f4f5f9;
+    --surface: #ffffff;
+    --border: #dde0ea;
+    --text: #1a1d2e;
+    --text-muted: #6b6f85;
+    --accent: #5b52e8;
+    --accent-glow: rgba(91, 82, 232, 0.2);
+    --note-a: #e0405f;
+    --note-b: #1a9e96;
+    --path: #b07d00;
+    --cell-low: #d2e4f8;
+    --cell-high: #f0cce8;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  header {
+    text-align: center;
+    padding: 28px 20px 12px;
+    position: relative;
+  }
+
+  header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--note-a), var(--accent), var(--note-b));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  header p {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: 6px;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    grid-template-rows: auto auto;
+    gap: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+    align-items: start;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    overflow: hidden;
+  }
+
+  .panel-title {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .panel-title .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .dot-a { background: var(--note-a); }
+  .dot-b { background: var(--note-b); }
+  .dot-path { background: var(--path); }
+
+  .seq-panel-a { grid-column: 1; grid-row: 1; }
+  .matrix-panel { grid-column: 2; grid-row: 1; }
+  .seq-panel-b { grid-column: 3; grid-row: 1; }
+  .controls-panel { grid-column: 1 / 4; grid-row: 2; }
+
+  .piano-roll {
+    position: relative;
+    cursor: pointer;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .piano-roll canvas {
+    display: block;
+    width: 100%;
+    border-radius: 6px;
+  }
+
+  #matrixCanvas {
+    display: block;
+    border-radius: 6px;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  button {
+    background: var(--border);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 18px;
+    font-family: var(--font);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  button:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  button:active {
+    transform: scale(0.97);
+  }
+
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    padding: 8px 28px;
+  }
+
+  button.primary:hover {
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+
+  .speed-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+
+  .speed-control input[type="range"] {
+    width: 100px;
+    accent-color: var(--accent);
+  }
+
+  .status {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    min-width: 200px;
+    text-align: center;
+  }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    margin-top: 8px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+
+  .info-bar {
+    text-align: center;
+    padding: 0 20px 16px;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  .info-bar p {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .theme-toggle {
+    position: fixed;
+    top: 14px;
+    right: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-family: var(--font);
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    letter-spacing: 0.5px;
+    z-index: 100;
+  }
+
+  .theme-toggle:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  @media (max-width: 1100px) {
+    .layout {
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto auto auto;
+    }
+    .seq-panel-a { grid-column: 1; grid-row: 1; }
+    .seq-panel-b { grid-column: 2; grid-row: 1; }
+    .matrix-panel { grid-column: 1 / 3; grid-row: 2; }
+    .controls-panel { grid-column: 1 / 3; grid-row: 3; }
+  }
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="themeToggle"></button>
+
+<header>
+  <a href="index.html" style="display:inline-block;margin-bottom:10px;font-size:0.75rem;color:var(--text-muted);text-decoration:none;letter-spacing:0.5px;">← Music Alignment</a>
+  <h1>Dynamic Time Warping</h1>
+  <p>Interactive music alignment algorithm visualization</p>
+</header>
+
+<div class="info-bar">
+  <p>Click cells in the piano rolls to toggle notes. Use the controls to step through the DTW algorithm and see how the cost matrix is filled and the optimal alignment path is found.</p>
+</div>
+
+<div class="layout">
+  <div class="panel seq-panel-a">
+    <div class="panel-title"><span class="dot dot-a"></span> Sequence A (reference)</div>
+    <div class="piano-roll" id="pianoRollA">
+      <canvas id="canvasA"></canvas>
+    </div>
+  </div>
+
+  <div class="panel matrix-panel">
+    <div class="panel-title"><span class="dot dot-path"></span> Cost Matrix &amp; Warping Path</div>
+    <canvas id="matrixCanvas"></canvas>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--cell-low)"></div> Low cost</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--cell-high)"></div> High cost</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--path)"></div> Optimal path</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#ff9f43"></div> Candidates</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:var(--accent); opacity:0.5"></div> Current cell</div>
+    </div>
+  </div>
+
+  <div class="panel seq-panel-b">
+    <div class="panel-title"><span class="dot dot-b"></span> Sequence B (query)</div>
+    <div class="piano-roll" id="pianoRollB">
+      <canvas id="canvasB"></canvas>
+    </div>
+  </div>
+
+  <div class="panel controls-panel">
+    <div class="controls">
+      <button id="btnReset">Reset</button>
+      <button id="btnStepBack">&#9664; Step</button>
+      <button id="btnPlay" class="primary">&#9654; Play</button>
+      <button id="btnStepFwd">Step &#9654;</button>
+      <button id="btnSkip">Skip to End</button>
+      <div class="speed-control">
+        <span>Speed</span>
+        <input type="range" id="speedSlider" min="1" max="50" value="15">
+        <span id="speedLabel">15×</span>
+      </div>
+      <div class="status" id="status">Click a piano roll to edit, then press Play</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const NOTE_NAMES = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'C\''];
+const NUM_PITCHES = NOTE_NAMES.length;
+const CELL = 36;
+const PR_CELL = 32;
+
+function getColors() {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  return {
+    surface:       light ? '#ffffff'               : '#1a1d27',
+    border:        light ? '#dde0ea'               : '#2a2d3a',
+    muted:         light ? '#6b6f85'               : '#8b8fa3',
+    accent:        light ? '#5b52e8'               : '#6c63ff',
+    noteA:         light ? '#e0405f'               : '#ff6b8a',
+    noteADim:      light ? 'rgba(224,64,95,0.15)'  : 'rgba(255,107,138,0.15)',
+    noteB:         light ? '#1a9e96'               : '#4ecdc4',
+    noteBDim:      light ? 'rgba(26,158,150,0.15)' : 'rgba(78,205,196,0.15)',
+    path:          light ? '#b07d00'               : '#ffd93d',
+    pathFill:      light ? 'rgba(176,125,0,0.2)'   : 'rgba(255,217,61,0.35)',
+    cellLow:       light ? [210, 228, 248]          : [26, 35, 50],
+    cellHigh:      light ? [240, 175, 220]          : [74, 25, 66],
+    cellEmpty:     light ? 'rgba(0,0,0,0.03)'       : 'rgba(255,255,255,0.02)',
+    cellText:      light ? 'rgba(0,0,0,0.65)'       : 'rgba(255,255,255,0.6)',
+    compareStroke: light ? '#1a1d2e'               : '#ffffff',
+    rowStripe:     light ? 'rgba(0,0,0,0.03)'       : 'rgba(255,255,255,0.02)',
+  };
+}
+
+let seqA = [3, 4, 5, 5, 4, 3, 2, 1, 1, 2, 3, 3];
+let seqB = [3, 3, 4, 5, 5, 4, 3, 2, 1, 1, 2, 3];
+
+let costMatrix = [];
+let dpMatrix = [];
+let fillOrder = [];
+let warpPath = [];
+let tracebackSteps = [];
+let animStep = -1;
+let playing = false;
+let animTimer = null;
+let phase = 'idle';
+
+function costFn(a, b) {
+  return (a - b) * (a - b);
+}
+
+function computeDTW() {
+  const n = seqA.length;
+  const m = seqB.length;
+  costMatrix = [];
+  dpMatrix = [];
+  fillOrder = [];
+
+  for (let i = 0; i < n; i++) {
+    costMatrix[i] = [];
+    dpMatrix[i] = [];
+    for (let j = 0; j < m; j++) {
+      costMatrix[i][j] = costFn(seqA[i], seqB[j]);
+      dpMatrix[i][j] = Infinity;
+    }
+  }
+
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < m; j++) {
+      const c = costMatrix[i][j];
+      if (i === 0 && j === 0) {
+        dpMatrix[i][j] = c;
+      } else if (i === 0) {
+        dpMatrix[i][j] = c + dpMatrix[i][j - 1];
+      } else if (j === 0) {
+        dpMatrix[i][j] = c + dpMatrix[i - 1][j];
+      } else {
+        dpMatrix[i][j] = c + Math.min(
+          dpMatrix[i - 1][j],
+          dpMatrix[i][j - 1],
+          dpMatrix[i - 1][j - 1]
+        );
+      }
+      fillOrder.push([i, j]);
+    }
+  }
+
+  warpPath = [];
+  tracebackSteps = [];
+  let i = n - 1, j = m - 1;
+  warpPath.push([i, j]);
+  while (i > 0 || j > 0) {
+    const candidates = [];
+    let chosen;
+    if (i === 0) {
+      candidates.push([i, j - 1]);
+      chosen = [i, j - 1];
+      j--;
+    } else if (j === 0) {
+      candidates.push([i - 1, j]);
+      chosen = [i - 1, j];
+      i--;
+    } else {
+      candidates.push([i - 1, j - 1], [i - 1, j], [i, j - 1]);
+      const diag = dpMatrix[i - 1][j - 1];
+      const up = dpMatrix[i - 1][j];
+      const left = dpMatrix[i][j - 1];
+      if (diag <= left && diag <= up) { chosen = [i - 1, j - 1]; i--; j--; }
+      else if (left <= up) { chosen = [i, j - 1]; j--; }
+      else { chosen = [i - 1, j]; i--; }
+    }
+    tracebackSteps.push({ from: warpPath[warpPath.length - 1], candidates, chosen });
+    warpPath.push([i, j]);
+  }
+}
+
+function drawPianoRoll(canvasId, seq, color, dimColor, highlightSteps, compareIdx) {
+  const C = getColors();
+  const canvas = document.getElementById(canvasId);
+  const n = seq.length;
+  const w = n * PR_CELL + 40;
+  const h = NUM_PITCHES * PR_CELL + 24;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  ctx.fillStyle = C.surface;
+  ctx.fillRect(0, 0, w, h);
+
+  const ox = 40, oy = 0;
+
+  for (let p = 0; p < NUM_PITCHES; p++) {
+    const y = oy + (NUM_PITCHES - 1 - p) * PR_CELL;
+    ctx.fillStyle = p % 2 === 0 ? C.rowStripe : 'transparent';
+    ctx.fillRect(ox, y, n * PR_CELL, PR_CELL);
+
+    ctx.fillStyle = C.muted;
+    ctx.font = '10px SF Mono, Consolas, monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(NOTE_NAMES[p], ox - 6, y + PR_CELL / 2);
+  }
+
+  for (let s = 0; s < n; s++) {
+    for (let p = 0; p < NUM_PITCHES; p++) {
+      const x = ox + s * PR_CELL;
+      const y = oy + (NUM_PITCHES - 1 - p) * PR_CELL;
+      ctx.strokeStyle = C.border;
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(x, y, PR_CELL, PR_CELL);
+    }
+  }
+
+  for (let s = 0; s < n; s++) {
+    const p = seq[s];
+    const x = ox + s * PR_CELL;
+    const y = oy + (NUM_PITCHES - 1 - p) * PR_CELL;
+    const isHighlighted = highlightSteps && highlightSteps.has(s);
+    const isCompare = compareIdx === s;
+    const r = 4;
+
+    ctx.fillStyle = (isHighlighted || isCompare) ? color : dimColor;
+    ctx.beginPath();
+    ctx.roundRect(x + 2, y + 2, PR_CELL - 4, PR_CELL - 4, r);
+    ctx.fill();
+
+    if (isHighlighted || isCompare) {
+      ctx.shadowColor = isCompare ? C.compareStroke : color;
+      ctx.shadowBlur = isCompare ? 14 : 10;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(x + 2, y + 2, PR_CELL - 4, PR_CELL - 4, r);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    if (isCompare) {
+      ctx.strokeStyle = C.compareStroke;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(x + 1, y + 1, PR_CELL - 2, PR_CELL - 2, r);
+      ctx.stroke();
+    }
+  }
+
+  ctx.fillStyle = C.muted;
+  ctx.font = '9px SF Mono, Consolas, monospace';
+  ctx.textAlign = 'center';
+  for (let s = 0; s < n; s++) {
+    ctx.fillText(s, ox + s * PR_CELL + PR_CELL / 2, h - 6);
+  }
+}
+
+function drawMatrix() {
+  const C = getColors();
+  const canvas = document.getElementById('matrixCanvas');
+  const n = seqA.length;
+  const m = seqB.length;
+  const labelSpace = 32;
+  const w = m * CELL + labelSpace + 16;
+  const h = n * CELL + labelSpace + 16;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  ctx.fillStyle = C.surface;
+  ctx.fillRect(0, 0, w, h);
+
+  const ox = labelSpace;
+  const oy = 8;
+
+  const fillInfo = getFillInfo();
+  const filledSet = new Set();
+  const allFilled = phase === 'path' || phase === 'done';
+  if (allFilled) {
+    for (let k = 0; k < fillOrder.length; k++) {
+      filledSet.add(fillOrder[k][0] + ',' + fillOrder[k][1]);
+    }
+  } else {
+    for (let k = 0; k < fillInfo.filledCount; k++) {
+      filledSet.add(fillOrder[k][0] + ',' + fillOrder[k][1]);
+    }
+  }
+
+  const showPath = phase === 'path' || phase === 'done';
+  const pathInfo = getPathInfo();
+  const pathSet = new Set();
+  if (showPath) {
+    for (let k = 0; k < pathInfo.revealedCount; k++) {
+      pathSet.add(warpPath[k][0] + ',' + warpPath[k][1]);
+    }
+  }
+
+  const candidateSet = new Set();
+  let currentHighlight = null;
+
+  if (phase === 'fill' && fillInfo.subStep === 1 && fillInfo.currentCell) {
+    const [ci, cj] = fillInfo.currentCell;
+    if (ci > 0 && cj > 0) candidateSet.add((ci-1) + ',' + (cj-1));
+    if (ci > 0) candidateSet.add((ci-1) + ',' + cj);
+    if (cj > 0) candidateSet.add(ci + ',' + (cj-1));
+  }
+
+  if (phase === 'path' && pathInfo.subStep === 0 && pathInfo.traceIdx >= 0 && pathInfo.traceIdx < tracebackSteps.length) {
+    const step = tracebackSteps[pathInfo.traceIdx];
+    for (const c of step.candidates) {
+      candidateSet.add(c[0] + ',' + c[1]);
+    }
+    currentHighlight = step.from;
+  } else if (phase === 'path' && pathInfo.subStep === 1 && pathInfo.traceIdx >= 0 && pathInfo.traceIdx < tracebackSteps.length) {
+    currentHighlight = tracebackSteps[pathInfo.traceIdx].chosen;
+  } else if (phase === 'path' && pathInfo.traceIdx < 0) {
+    currentHighlight = warpPath[0];
+  }
+
+  let maxCost = 0;
+  for (let i = 0; i < n; i++)
+    for (let j = 0; j < m; j++)
+      if (costMatrix[i] && costMatrix[i][j] > maxCost) maxCost = costMatrix[i][j];
+  if (maxCost === 0) maxCost = 1;
+
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < m; j++) {
+      const x = ox + j * CELL;
+      const y = oy + (n - 1 - i) * CELL;
+      const key = i + ',' + j;
+      const filled = filledSet.has(key);
+      const onPath = pathSet.has(key);
+
+      if (filled) {
+        const t = costMatrix[i][j] / maxCost;
+        const r = Math.round(C.cellLow[0] + (C.cellHigh[0] - C.cellLow[0]) * t);
+        const g = Math.round(C.cellLow[1] + (C.cellHigh[1] - C.cellLow[1]) * t);
+        const b = Math.round(C.cellLow[2] + (C.cellHigh[2] - C.cellLow[2]) * t);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+      } else {
+        ctx.fillStyle = C.cellEmpty;
+      }
+      ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+
+      if (onPath) {
+        ctx.fillStyle = C.pathFill;
+        ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+        ctx.strokeStyle = C.path;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 2, y + 2, CELL - 4, CELL - 4);
+      }
+
+      const isCandidate = candidateSet.has(key);
+      if (isCandidate) {
+        ctx.strokeStyle = '#ff9f43';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 2, y + 2, CELL - 4, CELL - 4);
+        ctx.shadowColor = '#ff9f43';
+        ctx.shadowBlur = 6;
+        ctx.strokeRect(x + 2, y + 2, CELL - 4, CELL - 4);
+        ctx.shadowBlur = 0;
+      }
+
+      const isFillCurrent = fillInfo.currentCell &&
+        fillInfo.currentCell[0] === i && fillInfo.currentCell[1] === j && phase === 'fill';
+      const isPathCurrent = currentHighlight &&
+        currentHighlight[0] === i && currentHighlight[1] === j;
+      if (isFillCurrent || isPathCurrent) {
+        ctx.strokeStyle = C.accent;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 2, y + 2, CELL - 4, CELL - 4);
+        ctx.shadowColor = C.accent;
+        ctx.shadowBlur = 8;
+        ctx.strokeRect(x + 2, y + 2, CELL - 4, CELL - 4);
+        ctx.shadowBlur = 0;
+      }
+
+      if (filled && CELL >= 30) {
+        ctx.fillStyle = onPath ? C.path : C.cellText;
+        ctx.font = `${CELL < 36 ? 8 : 9}px SF Mono, Consolas, monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(dpMatrix[i][j].toFixed(0), x + CELL / 2, y + CELL / 2);
+      }
+    }
+  }
+
+  if (pathSet.size > 1) {
+    const pts = [];
+    for (let k = 0; k < pathInfo.revealedCount; k++) {
+      pts.push(warpPath[k]);
+    }
+    if (pts.length > 1) {
+      ctx.beginPath();
+      ctx.strokeStyle = C.path;
+      ctx.lineWidth = 2.5;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.moveTo(ox + pts[0][1] * CELL + CELL / 2, oy + (n - 1 - pts[0][0]) * CELL + CELL / 2);
+      for (let k = 1; k < pts.length; k++) {
+        ctx.lineTo(ox + pts[k][1] * CELL + CELL / 2, oy + (n - 1 - pts[k][0]) * CELL + CELL / 2);
+      }
+      ctx.stroke();
+    }
+  }
+
+  ctx.fillStyle = C.muted;
+  ctx.font = '9px SF Mono, Consolas, monospace';
+  ctx.textAlign = 'center';
+  for (let j = 0; j < m; j++) {
+    ctx.fillText(j, ox + j * CELL + CELL / 2, oy + n * CELL + 14);
+  }
+  ctx.textAlign = 'right';
+  for (let i = 0; i < n; i++) {
+    ctx.fillText(i, ox - 6, oy + (n - 1 - i) * CELL + CELL / 2 + 3);
+  }
+
+  ctx.font = '9px SF Mono, Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = C.noteB;
+  ctx.fillText('Seq B →', ox + (m * CELL) / 2, oy + n * CELL + 26);
+  ctx.save();
+  ctx.translate(10, oy + (n * CELL) / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = C.noteA;
+  ctx.fillText('Seq A →', 0, 0);
+  ctx.restore();
+}
+
+function getFillInfo() {
+  if (phase !== 'fill' || animStep < 0) {
+    return { fillIndex: -1, subStep: -1, filledCount: 0, currentCell: null };
+  }
+  const fillIndex = Math.floor(animStep / 2);
+  const subStep = animStep % 2;
+  const filledCount = subStep === 0 ? fillIndex : fillIndex + 1;
+  const currentCell = fillOrder[fillIndex] || null;
+  return { fillIndex, subStep, filledCount, currentCell };
+}
+
+function getPathInfo() {
+  if (phase === 'done') {
+    return { revealedCount: warpPath.length, traceIdx: tracebackSteps.length, subStep: -1 };
+  }
+  if (phase !== 'path') {
+    return { revealedCount: 0, traceIdx: -1, subStep: -1 };
+  }
+  const pathAnimStep = animStep - fillOrder.length * 2;
+  if (pathAnimStep === 0) {
+    return { revealedCount: 1, traceIdx: -1, subStep: -1 };
+  }
+  const traceAnim = pathAnimStep - 1;
+  const traceIdx = Math.floor(traceAnim / 2);
+  const subStep = traceAnim % 2;
+  const revealedCount = 1 + traceIdx + (subStep === 1 ? 1 : 0);
+  return { revealedCount, traceIdx, subStep };
+}
+
+function getHighlightedSteps() {
+  if (phase !== 'path' && phase !== 'done') return { a: null, b: null };
+  const pathInfo = getPathInfo();
+  const aSet = new Set();
+  const bSet = new Set();
+  for (let k = 0; k < pathInfo.revealedCount && k < warpPath.length; k++) {
+    aSet.add(warpPath[k][0]);
+    bSet.add(warpPath[k][1]);
+  }
+  return { a: aSet, b: bSet };
+}
+
+function getCompareIndices() {
+  const info = getFillInfo();
+  if (phase !== 'fill' || !info.currentCell) return { a: -1, b: -1 };
+  return { a: info.currentCell[0], b: info.currentCell[1] };
+}
+
+function render() {
+  const C = getColors();
+  const hl = getHighlightedSteps();
+  const cmp = getCompareIndices();
+  drawPianoRoll('canvasA', seqA, C.noteA, C.noteADim, hl.a, cmp.a >= 0 ? cmp.a : undefined);
+  drawPianoRoll('canvasB', seqB, C.noteB, C.noteBDim, hl.b, cmp.b >= 0 ? cmp.b : undefined);
+  drawMatrix();
+  updateStatus();
+}
+
+function updateStatus() {
+  const el = document.getElementById('status');
+  if (phase === 'idle') {
+    el.textContent = 'Click a piano roll to edit, then press Play';
+  } else if (phase === 'fill') {
+    const info = getFillInfo();
+    const cellNum = info.fillIndex + 1;
+    if (info.subStep === 0) {
+      const [ci, cj] = info.currentCell;
+      el.textContent = `Cell ${cellNum}/${fillOrder.length} — comparing A[${ci}] with B[${cj}]`;
+    } else {
+      el.textContent = `Cell ${cellNum}/${fillOrder.length} — picking min of candidates`;
+    }
+  } else if (phase === 'path') {
+    const pathInfo = getPathInfo();
+    if (pathInfo.traceIdx < 0) {
+      el.textContent = `Traceback — starting at (${warpPath[0]})`;
+    } else if (pathInfo.subStep === 0) {
+      const step = tracebackSteps[pathInfo.traceIdx];
+      el.textContent = `Traceback ${pathInfo.traceIdx+1}/${tracebackSteps.length} — checking candidates from (${step.from})`;
+    } else {
+      const step = tracebackSteps[pathInfo.traceIdx];
+      el.textContent = `Traceback ${pathInfo.traceIdx+1}/${tracebackSteps.length} — move to (${step.chosen})`;
+    }
+  } else if (phase === 'done') {
+    const totalCost = dpMatrix[seqA.length - 1][seqB.length - 1];
+    el.textContent = `Done — total alignment cost: ${totalCost}`;
+  }
+}
+
+function totalSteps() {
+  return fillOrder.length * 2 + 1 + tracebackSteps.length * 2;
+}
+
+function stepForward() {
+  if (animStep >= totalSteps() - 1) {
+    phase = 'done';
+    render();
+    return;
+  }
+  animStep++;
+  if (animStep < fillOrder.length * 2) {
+    phase = 'fill';
+  } else {
+    phase = 'path';
+  }
+  render();
+}
+
+function stepBack() {
+  if (animStep < 0) return;
+  animStep--;
+  if (animStep < 0) {
+    phase = 'idle';
+  } else if (animStep < fillOrder.length * 2) {
+    phase = 'fill';
+  } else {
+    phase = 'path';
+  }
+  render();
+}
+
+function getSpeed() {
+  return parseInt(document.getElementById('speedSlider').value);
+}
+
+function playAnim() {
+  if (phase === 'done') {
+    resetAnim();
+  }
+  playing = true;
+  document.getElementById('btnPlay').innerHTML = '&#9646;&#9646; Pause';
+  computeDTW();
+
+  function tick() {
+    if (!playing) return;
+    const speed = getSpeed();
+    for (let i = 0; i < speed; i++) {
+      if (animStep >= totalSteps() - 1) {
+        phase = 'done';
+        playing = false;
+        document.getElementById('btnPlay').innerHTML = '&#9654; Play';
+        render();
+        return;
+      }
+      animStep++;
+      if (animStep < fillOrder.length * 2) {
+        phase = 'fill';
+      } else {
+        phase = 'path';
+      }
+    }
+    render();
+    animTimer = requestAnimationFrame(tick);
+  }
+  animTimer = requestAnimationFrame(tick);
+}
+
+function pauseAnim() {
+  playing = false;
+  if (animTimer) cancelAnimationFrame(animTimer);
+  document.getElementById('btnPlay').innerHTML = '&#9654; Play';
+}
+
+function resetAnim() {
+  pauseAnim();
+  animStep = -1;
+  phase = 'idle';
+  computeDTW();
+  render();
+}
+
+function skipToEnd() {
+  pauseAnim();
+  computeDTW();
+  animStep = totalSteps() - 1;
+  phase = 'done';
+  render();
+}
+
+function handlePianoClick(canvasId, seq, e) {
+  if (playing) return;
+  const canvas = document.getElementById(canvasId);
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.clientWidth / (seq.length * PR_CELL + 40);
+  const x = (e.clientX - rect.left) / scaleX;
+  const y = (e.clientY - rect.top) / scaleX;
+
+  const ox = 40, oy = 0;
+  const step = Math.floor((x - ox) / PR_CELL);
+  const pitchRow = Math.floor((y - oy) / PR_CELL);
+  const pitch = NUM_PITCHES - 1 - pitchRow;
+
+  if (step >= 0 && step < seq.length && pitch >= 0 && pitch < NUM_PITCHES) {
+    seq[step] = pitch;
+    resetAnim();
+  }
+}
+
+document.getElementById('canvasA').addEventListener('click', e => handlePianoClick('canvasA', seqA, e));
+document.getElementById('canvasB').addEventListener('click', e => handlePianoClick('canvasB', seqB, e));
+
+document.getElementById('btnPlay').addEventListener('click', () => {
+  if (playing) pauseAnim(); else playAnim();
+});
+document.getElementById('btnStepFwd').addEventListener('click', () => {
+  if (phase === 'idle') computeDTW();
+  stepForward();
+});
+document.getElementById('btnStepBack').addEventListener('click', stepBack);
+document.getElementById('btnReset').addEventListener('click', resetAnim);
+document.getElementById('btnSkip').addEventListener('click', skipToEnd);
+
+document.getElementById('speedSlider').addEventListener('input', e => {
+  document.getElementById('speedLabel').textContent = e.target.value + '×';
+});
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); if (playing) pauseAnim(); else playAnim(); }
+  if (e.code === 'ArrowRight') { e.preventDefault(); if (phase === 'idle') computeDTW(); stepForward(); }
+  if (e.code === 'ArrowLeft') { e.preventDefault(); stepBack(); }
+  if (e.code === 'KeyR') { resetAnim(); }
+});
+
+function updateThemeToggle() {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  document.getElementById('themeToggle').textContent = light ? '☾ Dark' : '☀ Light';
+}
+
+document.getElementById('themeToggle').addEventListener('click', () => {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  const next = light ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+  updateThemeToggle();
+  render();
+});
+
+updateThemeToggle();
+computeDTW();
+render();
+</script>
+
+</body>
+</html>
