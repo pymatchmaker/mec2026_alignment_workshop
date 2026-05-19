@@ -63,9 +63,7 @@
     font-size: 1.5rem;
     font-weight: 600;
     letter-spacing: -0.5px;
-    background: linear-gradient(135deg, var(--note-a), var(--accent), var(--note-b));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--accent);
   }
 
   header p {
@@ -284,7 +282,7 @@
 
 <div class="layout">
   <div class="panel seq-panel-a">
-    <div class="panel-title"><span class="dot dot-a"></span> Sequence A (reference)</div>
+    <div class="panel-title"><span class="dot dot-a"></span> Performance</div>
     <div class="piano-roll" id="pianoRollA">
       <canvas id="canvasA"></canvas>
     </div>
@@ -303,7 +301,7 @@
   </div>
 
   <div class="panel seq-panel-b">
-    <div class="panel-title"><span class="dot dot-b"></span> Sequence B (query)</div>
+    <div class="panel-title"><span class="dot dot-b"></span> Score</div>
     <div class="piano-roll" id="pianoRollB">
       <canvas id="canvasB"></canvas>
     </div>
@@ -684,12 +682,12 @@ function drawMatrix() {
   ctx.font = '9px SF Mono, Consolas, monospace';
   ctx.textAlign = 'center';
   ctx.fillStyle = C.noteB;
-  ctx.fillText('Seq B →', ox + (m * CELL) / 2, oy + n * CELL + 26);
+  ctx.fillText('Score →', ox + (m * CELL) / 2, oy + n * CELL + 26);
   ctx.save();
   ctx.translate(10, oy + (n * CELL) / 2);
   ctx.rotate(-Math.PI / 2);
   ctx.fillStyle = C.noteA;
-  ctx.fillText('Seq A →', 0, 0);
+  ctx.fillText('Performance →', 0, 0);
   ctx.restore();
 }
 
@@ -759,7 +757,7 @@ function updateStatus() {
     const cellNum = info.fillIndex + 1;
     if (info.subStep === 0) {
       const [ci, cj] = info.currentCell;
-      el.textContent = `Cell ${cellNum}/${fillOrder.length} — comparing A[${ci}] with B[${cj}]`;
+      el.textContent = `Cell ${cellNum}/${fillOrder.length} — comparing Perf[${ci}] with Score[${cj}]`;
     } else {
       el.textContent = `Cell ${cellNum}/${fillOrder.length} — picking min of candidates`;
     }
