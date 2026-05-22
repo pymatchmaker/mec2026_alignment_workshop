@@ -21,7 +21,7 @@ pip install -r requirements.txt
 jupyter lab MEC2026_audio_audio_alignment.ipynb
 ```
 
-The Mozart *"Ah! vous dirai-je, maman"* example audio is bundled in [`data_music/`](./data_music). Copyrighted recordings (the symphony piano reductions) are **not** redistributed here — the notebook fetches short excerpts from YouTube on demand.
+The Mozart *"Ah! vous dirai-je, maman"* example audio is bundled in [`data_music/`](./data_music). Copyrighted recordings (the symphony piano reductions) are **not** redistributed here, the notebook fetches short excerpts from YouTube on demand.
 
 ## LICENSE
 
@@ -31,6 +31,6 @@ Data contained in this repository (e.g., audio, MIDI, etc.), unless indicated ot
 
 ## Acknowledgements
 
-This work was supported by the Austrian Science Fund (FWF) under grants PAT 8820923 (“Rach3”) and PIN1347924 (“AURA”), the National Research Foundation of Korea (NRF) funded by the Korean government (MSIT) under Grant RS-2023-NR077289, and the European Research Council (ERC) under the EU’s Horizon 2020 programme (Grant No. 101019375, “Whither Music?”).
+This work was supported by the Austrian Science Fund (FWF) under grants PAT 8820923 (“Rach3”) and PIN1347924 (“AURA”), the National Research Foundation of Korea (NRF) funded by the Korean government (MSIT) under Grant RS-2023-NR077289, the European Research Council (ERC) under the EU’s Horizon 2020 programme (Grant No. 101019375, “Whither Music?”), and Japan Society for the Promotion of Science (JSPS) MEXT KAKENHI Grant No. 26K21414.
 
 
