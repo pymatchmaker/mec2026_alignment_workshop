@@ -10,7 +10,7 @@ In this half-day workshop we will provide a practical, hands-on overview of musi
 
 ## Offline Alignment: Audio–Audio Notebook
 
-A hands-on notebook for **offline audio-to-audio alignment** — synchronising two recordings of the same piece with chroma features and MrMsDTW ([Sync Toolbox](https://github.com/meinardmueller/synctoolbox)), with time-scale-modification sonification ([libtsm](https://github.com/groupmm/libtsm)), chroma sonification ([libsoni](https://github.com/groupmm/libsoni)), warping-path CSV export, and Sonic Visualiser layers. It closes with a bonus on cross-instrument alignment (piano reduction ↔ orchestra).
+A hands-on notebook for **offline audio-to-audio alignment** — synchronising two recordings of the same piece with chroma features and MrMsDTW ([Sync Toolbox](https://github.com/meinardmueller/synctoolbox)), with time-scale-modification sonification ([libtsm](https://github.com/groupmm/libtsm)), chroma sonification ([libsoni](https://github.com/groupmm/libsoni)), warping-path CSV export, and Sonic Visualiser layers. It closes with a bonus on cross-instrument alignment (piano reduction ↔ orchestra) using Tchaikovsky's *Nutcracker*.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pymatchmaker/mec2026_alignment_workshop/blob/offline-alignment/MEC2026_audio_audio_alignment.ipynb)
 
@@ -21,7 +21,7 @@ pip install -r requirements.txt
 jupyter lab MEC2026_audio_audio_alignment.ipynb
 ```
 
-The Mozart *"Ah! vous dirai-je, maman"* example audio is bundled in [`data_music/`](./data_music). Copyrighted recordings (the symphony piano reductions) are **not** redistributed here, the notebook fetches short excerpts from YouTube on demand.
+All example audio is bundled in [`data_music/`](./data_music) and is openly licensed / public-domain: the Mozart *"Ah! vous dirai-je, maman"* main example, plus a Tchaikovsky *Nutcracker* (Op. 71a) piano–orchestra pair for the cross-instrument bonus. You can also swap in your own recordings via file upload or YouTube links.
 
 ## LICENSE
 
