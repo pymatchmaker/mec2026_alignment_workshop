@@ -8,6 +8,21 @@ Music lives in the interplay of different representations: from printed sheet mu
 
 In this half-day workshop we will provide a practical, hands-on overview of music alignment. The workshop will consist of a comprehensive overview of alignment technologies for both symbolic music and audio, including a practical presentation of tools, datasets and formats for representing alignments. Rather than focusing primarily on the technical aspects of alignment algorithms, we will focus on practical aspects of using alignment for the purpose of music analysis in different contexts, showcasing pipelines, open-source tools and applications.
 
+## Offline Alignment: Audio–Audio Notebook
+
+A hands-on notebook for **offline audio-to-audio alignment** — synchronising two recordings of the same piece with chroma features and MrMsDTW ([Sync Toolbox](https://github.com/meinardmueller/synctoolbox)), with time-scale-modification sonification ([libtsm](https://github.com/groupmm/libtsm)), chroma sonification ([libsoni](https://github.com/groupmm/libsoni)), warping-path CSV export, and Sonic Visualiser layers. It closes with a bonus on cross-instrument alignment (piano reduction ↔ orchestra).
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pymatchmaker/mec2026_alignment_workshop/blob/offline-alignment/MEC2026_audio_audio_alignment.ipynb)
+
+Run it in **Google Colab** (no setup needed), or locally:
+
+```bash
+pip install -r requirements.txt
+jupyter lab MEC2026_audio_audio_alignment.ipynb
+```
+
+The Mozart *"Ah! vous dirai-je, maman"* example audio is bundled in [`data_music/`](./data_music). Copyrighted recordings (the symphony piano reductions) are **not** redistributed here — the notebook fetches short excerpts from YouTube on demand.
+
 ## LICENSE
 
 Unless indicated otherwise, the code contained in this repository is distributed under the Apache 2.0 license (see [LICENSE](./LICENSE)).
