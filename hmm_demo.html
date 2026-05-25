@@ -1,0 +1,2042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script>
+  (function(){
+    const t = localStorage.getItem('theme') ||
+      (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Online Music Alignment with Hidden Markov Models</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a;
+    --text: #e2e4ea; --text-muted: #8b8fa3;
+    --accent: #6c63ff; --accent-glow: rgba(108,99,255,0.3);
+    --note-a: #ff6b8a; --note-b: #4ecdc4; --fwd: #ffa94d; --prev-alpha: #60a5fa;
+    --font: 'SF Mono','Cascadia Code','Fira Code','Consolas',monospace;
+  }
+  html[data-theme="light"] {
+    --bg: #f4f5f9; --surface: #ffffff; --border: #dde0ea;
+    --text: #1a1d2e; --text-muted: #6b6f85;
+    --accent: #5b52e8; --accent-glow: rgba(91,82,232,0.2);
+    --note-a: #e0405f; --note-b: #1a9e96; --fwd: #c05c00; --prev-alpha: #2563eb;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); min-height:100vh; overflow-x:hidden; }
+
+  header { text-align:center; padding:28px 20px 12px; }
+  header h1 { font-size:1.5rem; font-weight:600; letter-spacing:-0.5px; color:var(--accent); }
+  header p  { color:var(--text-muted); font-size:0.8rem; margin-top:6px; }
+
+  .layout {
+    display:grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto auto auto;
+    gap:16px; max-width:1200px; margin:0 auto; padding:20px; align-items:start;
+  }
+  .perf-panel      { grid-column:1; grid-row:1; }
+  .score-panel     { grid-column:1; grid-row:2; }
+  .equation-panel  { grid-column:1; grid-row:3; display:none; overflow:visible; }
+  .controls-panel  { grid-column:1; grid-row:4; }
+  .matrices-panel  { grid-column:1; grid-row:5; }
+
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; overflow:hidden; }
+  .panel-title {
+    font-size:0.75rem; text-transform:uppercase; letter-spacing:1.5px;
+    color:var(--text-muted); margin-bottom:12px; display:flex; align-items:center; gap:8px;
+  }
+  .panel-title-note { margin-left:auto; font-size:0.65rem; opacity:0.7; text-transform:none; letter-spacing:0; }
+  .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .dot-a { background:var(--note-a); }
+  .dot-b { background:var(--note-b); }
+  .dot-c { background:var(--accent); }
+  .dot-fwd { background:var(--fwd); }
+
+  /* Side-by-side matrices inside one panel */
+  .matrices-row {
+    display:flex; flex-direction:row; gap:16px; align-items:flex-start; flex-wrap:nowrap;
+  }
+  .matrix-col { display:flex; flex-direction:column; flex:1; min-width:0; overflow:hidden; }
+  .matrix-col canvas { max-width:100%; }
+  .matrix-col .panel-title { margin-bottom:8px; }
+  .matrix-divider {
+    width:1px; background:var(--border); align-self:stretch; margin:0;
+  }
+  .matrices-panel-header {
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:12px;
+  }
+  .toggle-btn {
+    background:none; border:1px solid transparent;
+    color:var(--text-muted); cursor:pointer; font-size:0.7rem;
+    padding:1px 6px; border-radius:4px; font-family:var(--font);
+    transition:all 0.15s; line-height:1.4; flex-shrink:0;
+  }
+  .toggle-btn:hover { border-color:var(--border); color:var(--accent); }
+
+  .controls { display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap; }
+  .ctl { display:flex; align-items:center; gap:8px; color:var(--text-muted); font-size:0.75rem; }
+  .ctl select {
+    background:var(--border); color:var(--text); border:1px solid var(--border); border-radius:8px;
+    padding:6px 10px; font-family:var(--font); font-size:0.75rem; cursor:pointer; outline:none;
+    appearance:none; -webkit-appearance:none; padding-right:24px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b8fa3'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 8px center;
+  }
+  .ctl input[type=range] { width:110px; accent-color:var(--accent); }
+  .ctl input[type=number] {
+    width:62px; background:var(--border); color:var(--text);
+    border:1px solid var(--border); border-radius:8px;
+    padding:5px 8px; font-family:var(--font); font-size:0.75rem; outline:none;
+    -moz-appearance:textfield;
+  }
+  .ctl input[type=number]::-webkit-inner-spin-button,
+  .ctl input[type=number]::-webkit-outer-spin-button { opacity:0.5; }
+  .ctl input[type=number].invalid { border-color:var(--note-a) !important; }
+  .ctl-sub { font-size:0.65rem; color:var(--text-muted); }
+  .ctl-div { width:1px; height:24px; background:var(--border); }
+  .trans-warning {
+    display:none; text-align:center; margin-top:8px;
+    font-size:0.72rem; color:var(--note-a); letter-spacing:0.2px;
+  }
+  .trans-warning.visible { display:block; }
+
+  /* ── Playback controls ── */
+  .playback-row {
+    display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap;
+    padding-bottom:12px; border-bottom:1px solid var(--border); margin-bottom:12px;
+  }
+  .pbtn {
+    background:var(--border); border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:5px 14px; font-family:var(--font); font-size:0.78rem;
+    cursor:pointer; transition:all 0.15s; min-width:38px; user-select:none;
+  }
+  .pbtn:hover  { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .pbtn.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .pbtn:disabled { opacity:0.32; cursor:not-allowed; pointer-events:none; }
+  .step-counter {
+    font-size:0.72rem; color:var(--text-muted); min-width:70px;
+    text-align:center; letter-spacing:0.3px;
+  }
+
+  .theme-toggle {
+    position:fixed; top:14px; right:16px; background:var(--surface); border:1px solid var(--border);
+    color:var(--text-muted); border-radius:20px; padding:5px 12px; font-family:var(--font);
+    font-size:0.7rem; cursor:pointer; transition:all 0.15s; z-index:100;
+  }
+  .theme-toggle:hover { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+  /* ── Equation panel ── */
+  .equation-header {
+    display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;
+  }
+  .equation-close {
+    background:none; border:none; color:var(--text-muted); cursor:pointer;
+    font-size:0.9rem; padding:2px 8px; border-radius:4px; font-family:var(--font);
+    transition:color 0.15s;
+  }
+  .equation-close:hover { color:var(--note-a); }
+  .equation-content {
+    font-size:1rem; text-align:center; padding:10px 0 4px; min-height:64px;
+    color:var(--text); overflow-x:auto;
+  }
+  .equation-legend {
+    display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:10px;
+    padding-top:10px; border-top:1px solid var(--border);
+  }
+  .equation-legend-item {
+    display:flex; align-items:center; gap:5px;
+    font-size:0.68rem; color:var(--text-muted);
+  }
+  .equation-legend-swatch {
+    width:10px; height:10px; border-radius:2px; flex-shrink:0;
+  }
+
+  @media (max-width:700px) {
+    .matrices-row { flex-direction:column; }
+    .matrix-divider { display:none; }
+  }
+</style>
+<script>
+  MathJax = {
+    tex: { packages: {'[+]': ['html']}, inlineMath: [['$','$']] },
+    startup: { typeset: false }
+  };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" defer></script>
+</head>
+<body>
+<button class="theme-toggle" id="themeToggle"></button>
+
+<header>
+  <a href="intro_alignment.html" style="display:inline-block;margin-bottom:10px;font-size:0.75rem;color:var(--text-muted);text-decoration:none;letter-spacing:0.5px;">← Introduction to Alignment</a>
+  <h1>Online Music Alignment with Hidden Markov Models</h1>
+</header>
+
+<div class="layout">
+
+  <!-- Row 1: Performance (observations) -->
+  <div class="panel perf-panel">
+    <div class="panel-title">
+      <span class="dot dot-a"></span> Performance (Observations)
+      <span class="panel-title-note">Click to edit notes</span>
+    </div>
+    <div class="controls" style="justify-content:flex-start; margin-bottom:10px;">
+      <div class="ctl">
+        <span>Preset</span>
+        <select id="perfPreset">
+          <option value="mixed"      selected>Mixed</option>
+          <option value="perfect">Perfect</option>
+          <option value="deletions">Deletions</option>
+          <option value="insertions">Insertions</option>
+        </select>
+      </div>
+      <div class="ctl-div"></div>
+      <div class="ctl">
+        <span>T (steps)</span>
+        <input type="number" id="tInput" min="1" max="15" value="12" step="1"
+               style="width:44px; text-align:center; padding:2px 4px;">
+      </div>
+    </div>
+    <canvas id="canvasPerf" style="cursor:pointer; display:block;"></canvas>
+  </div>
+
+  <!-- Row 2: Forward matrix (left) + Score (right) -->
+  <div class="panel score-panel">
+    <div style="display:flex; gap:16px; align-items:flex-start;">
+
+      <!-- Left: Score piano roll + overlays -->
+      <div style="flex:1; min-width:0;">
+        <div class="panel-title" style="margin-bottom:8px;">
+          <span class="dot dot-b"></span> Score (States)
+          <span class="panel-title-note">Click to edit notes</span>
+        </div>
+        <canvas id="barPlotCanvas"        style="display:none; cursor:default; margin-bottom:2px;"></canvas>
+        <canvas id="transArrowCanvas"     style="display:none; cursor:default; margin-bottom:2px;"></canvas>
+        <canvas id="alphaPrevStripCanvas" style="display:none; cursor:default; margin-bottom:2px;"></canvas>
+        <canvas id="alphaStripCanvas"     style="display:none; cursor:default; margin-bottom:2px;"></canvas>
+        <canvas id="canvasScore"          style="cursor:pointer; display:block;"></canvas>
+      </div>
+
+      <div class="matrix-divider"></div>
+
+      <!-- Right: Forward variable matrix -->
+      <div style="flex-shrink:0;">
+        <div class="panel-title" style="margin-bottom:8px;">
+          <span class="dot dot-fwd"></span> Forward Variable α
+          <span class="panel-title-note">click a cell to see its equation</span>
+        </div>
+        <canvas id="forwardMatrixCanvas" style="display:block; cursor:pointer;"></canvas>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Row 3: Equation panel (shown when a forward matrix cell is selected) -->
+  <div class="panel equation-panel" id="equationPanel">
+    <div class="equation-header">
+      <div class="panel-title" style="margin-bottom:0;">
+        <span class="dot dot-fwd"></span> Forward Variable Equation
+      </div>
+      <button class="equation-close" id="closeEquation">✕</button>
+    </div>
+    <div class="equation-content" id="equationContent"></div>
+    <div class="equation-legend">
+      <div class="equation-legend-item">
+        <div class="equation-legend-swatch" style="background:var(--fwd);"></div>
+        <span>α̂[t,j] — forward variable (normalized)</span>
+      </div>
+      <div class="equation-legend-item">
+        <div class="equation-legend-swatch" style="background:var(--prev-alpha);"></div>
+        <span>α[t-1,i] — previous step</span>
+      </div>
+      <div class="equation-legend-item">
+        <div class="equation-legend-swatch" style="background:var(--note-a);"></div>
+        <span>p(obs|state j) — observation</span>
+      </div>
+      <div class="equation-legend-item">
+        <div class="equation-legend-swatch" style="background:var(--note-b);"></div>
+        <span>p(state'=j|state=i) — transition</span>
+      </div>
+      <div class="equation-legend-item">
+        <div class="equation-legend-swatch" style="background:var(--accent);"></div>
+        <span>π[j] — initial prob (t=0)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 5: HMM Parameters -->
+  <div class="panel matrices-panel">
+    <div class="matrices-panel-header">
+      <span class="panel-title" style="margin-bottom:0;">
+        <span class="dot dot-c"></span> HMM Parameters
+      </span>
+      <button class="toggle-btn" id="toggleMatrices" title="Show / hide matrices">▾</button>
+    </div>
+    <div class="matrices-row" id="matricesRow">
+
+      <div class="matrix-col" id="colTransition">
+        <div class="panel-title">
+          <span class="dot dot-c"></span> Transition Probabilities
+          <span class="panel-title-note">p(next state = j | current state = i)</span>
+        </div>
+        <div class="controls" style="justify-content:flex-start; margin-bottom:10px;">
+          <div class="ctl">
+            <span>μ</span>
+            <input type="number" id="transMuInput" value="1" min="0" step="1">
+            <span class="ctl-sub">state shift</span>
+          </div>
+          <div class="ctl">
+            <span>σ<sub>t</sub></span>
+            <input type="range" id="transSigmaSlider" min="0.1" max="3" value="0.5" step="0.1">
+            <span id="transSigmaLabel">0.5</span>
+          </div>
+        </div>
+        <div class="trans-warning" id="transMuWarning"></div>
+        <canvas id="transitionCanvas" style="display:block;"></canvas>
+      </div>
+
+      <div class="matrix-divider" id="matrixDivider"></div>
+
+      <div class="matrix-col" id="colEmission">
+        <div class="panel-title">
+          <span class="dot dot-c"></span> Observation Probabilities
+          <span class="panel-title-note">p(obs = p | state = j)</span>
+        </div>
+        <div class="controls" style="justify-content:flex-start; margin-bottom:10px;">
+          <div class="ctl">
+            <span>Observation model</span>
+            <select id="emissionModel">
+              <option value="gaussian">Gaussian</option>
+              <option value="binary">Binary</option>
+            </select>
+          </div>
+          <div class="ctl" id="sigmaCtl">
+            <span>σ</span>
+            <input type="range" id="sigmaSlider" min="0.5" max="4" value="1" step="0.1">
+            <span id="sigmaLabel">1.0</span>
+          </div>
+        </div>
+        <canvas id="emissionCanvas" style="cursor:pointer; display:block;"></canvas>
+      </div>
+
+    </div><!-- /matrices-row -->
+
+    <!-- Initial probability strip -->
+    <div id="piStripSection" style="margin-top:14px;">
+      <div class="panel-title" style="margin-bottom:8px;">
+        <span class="dot dot-c"></span> Initial Probabilities
+        <span class="panel-title-note">π[j] = p(start in state j) · click states to concentrate</span>
+      </div>
+      <canvas id="piStripCanvas" style="cursor:pointer; display:block;"></canvas>
+    </div>
+
+
+  </div>
+
+  <!-- Row 3: Controls (playback only) -->
+  <div class="panel controls-panel">
+
+    <!-- Playback controls -->
+    <div class="playback-row">
+      <button class="pbtn" id="btnReset"  title="Reset to start">⏮</button>
+      <button class="pbtn" id="btnBack"   title="Step back" disabled>◀</button>
+      <span   class="step-counter" id="stepCounter">— / 12</span>
+      <button class="pbtn" id="btnStep"   title="Step forward">▶|</button>
+      <button class="pbtn" id="btnPlay"   title="Play / Pause">▶ Play</button>
+      <div class="ctl">
+        <span>speed</span>
+        <input type="range" id="speedSlider" min="300" max="3000" value="1200" step="100">
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const NOTE_NAMES = ['C','D','E','F','G','A','B',"C'"];
+const NUM_PITCHES = NOTE_NAMES.length;
+const PR_CELL = 32;
+const EM_W    = 32;
+const EM_H    = 32;
+const TR_CELL = 32;
+
+let seqScore = [2, 2, 3, 4, 4, 3, 2, 1, 0, 0];   // 10 fixed states (E E F G G F E D C C)
+
+// ── Performance presets ───────────────────────────────────────────────────
+// Score notes for reference: E E F G G F E D C C  (indices 2 2 3 4 4 3 2 1 0 0)
+const PERF_PRESETS = {
+  // Mixed: some deletions (no repeated E at start) + some extra notes at end
+  mixed:      [2, 3, 4, 4, 3, 2, 1, 0, 0, 1, 2, 2],
+  // Perfect: identical to score
+  perfect:    [2, 2, 3, 4, 4, 3, 2, 1, 0, 0],
+  // Deletions: consecutive repeated notes removed  (E F G F E D C → T=7)
+  deletions:  [2, 3, 4, 3, 2, 1, 0],
+  // Insertions: ornamental A (index 5) added between G and F; notes elongated (T=15)
+  insertions: [2, 2, 3, 3, 4, 5, 4, 4, 3, 3, 2, 2, 1, 0, 0],
+};
+
+let seqPerf = [...PERF_PRESETS.mixed];   // default performance
+let selectedState    = null;
+let selectedPerfStep = null;
+let selectedInitStates = new Set();   // states clicked in the π strip
+const INIT_CONC = 0.90;               // fraction given to selected states
+
+// ── Forward-algorithm animation state ──────────────────────────────────────
+let animStep   = -1;         // current observation index, -1 = not started
+let isPlaying  = false;
+let playTimer  = null;       // setTimeout handle for next auto-step
+let sweepTimer = null;       // setTimeout handle for in-step sweep animation
+let sweepState = null;       // source state currently highlighted during sweep
+let sweepPartialAlpha = null; // running partial sum ∑_{i'≤i} α[t-1][i']·A[i'][j], before emission
+let fwdMatrix  = [];         // fwdMatrix[t] = Float64Array(n), normalised α[t]
+let matrixRevealedUpTo = -1; // highest row shown in the forward matrix (revealed after sweep)
+let selectedFwdCell = null;  // { t, j } of clicked forward matrix cell — triggers equation panel
+let lastEquationKey = null;  // cache key to avoid re-typesetting unchanged equations
+
+const playSpeedMs = () => parseInt(document.getElementById('speedSlider').value) || 1200;
+
+// ── Colors ────────────────────────────────────────────────────────────────
+function getColors() {
+  const L = document.documentElement.getAttribute('data-theme') === 'light';
+  return {
+    surface:   L ? '#ffffff'               : '#1a1d27',
+    border:    L ? '#dde0ea'               : '#2a2d3a',
+    muted:     L ? '#6b6f85'               : '#8b8fa3',
+    text:      L ? '#1a1d2e'               : '#e2e4ea',
+    accent:    L ? '#5b52e8'               : '#6c63ff',
+    noteA:     L ? '#e0405f'               : '#ff6b8a',
+    noteADim:  L ? 'rgba(224,64,95,0.15)'  : 'rgba(255,107,138,0.15)',
+    noteB:     L ? '#1a9e96'               : '#4ecdc4',
+    noteBDim:  L ? 'rgba(26,158,150,0.15)' : 'rgba(78,205,196,0.15)',
+    rowStripe: L ? 'rgba(0,0,0,0.03)'      : 'rgba(255,255,255,0.02)',
+    cellText:  L ? 'rgba(0,0,0,0.70)'      : 'rgba(255,255,255,0.65)',
+    cmpStroke: L ? '#1a1d2e'               : '#ffffff',
+    emLow:  L ? [255,235,239] : [ 44, 15, 22],   // noteA (pink/red) — observation matrix
+    emHigh: L ? [224, 64, 95] : [255,107,138],
+    trLow:  L ? [220,245,242] : [ 15, 38, 44],   // noteB (teal)    — transition matrix
+    trHigh: L ? [ 26,158,150] : [ 78,205,196],
+    fwdColor:       L ? '#c05c00' : '#ffa94d',   // amber/orange — forward variable α[t]
+    prevAlphaColor: L ? '#2563eb' : '#60a5fa',   // blue         — forward variable α[t-1]
+  };
+}
+
+// ── Model ─────────────────────────────────────────────────────────────────
+function computeEmission() {
+  const n = seqScore.length;
+  const mode  = document.getElementById('emissionModel').value;
+  const sigma = parseFloat(document.getElementById('sigmaSlider').value) || 1;
+  const B = [];
+  for (let j = 0; j < n; j++) {
+    B[j] = new Float64Array(NUM_PITCHES);
+    let sum = 0;
+    for (let p = 0; p < NUM_PITCHES; p++) {
+      const d = p - seqScore[j];
+      B[j][p] = mode === 'gaussian'
+        ? Math.exp(-d * d / (2 * sigma * sigma))
+        : (p === seqScore[j] ? 1 : 0.02);
+      sum += B[j][p];
+    }
+    for (let p = 0; p < NUM_PITCHES; p++) B[j][p] /= sum;
+  }
+  return B;
+}
+
+function computeTransition() {
+  const n     = seqScore.length;
+  const muEl  = document.getElementById('transMuInput');
+  const mu    = Math.round(parseFloat(muEl.value));  // integer only
+  const sigT  = parseFloat(document.getElementById('transSigmaSlider').value) || 0.5;
+  const warn  = document.getElementById('transMuWarning');
+
+  // ── Validation ──
+  const invalid = isNaN(mu) || mu < 0;
+  const tooLarge = !invalid && mu >= n;
+  muEl.classList.toggle('invalid', invalid || tooLarge);
+  if (invalid) {
+    warn.textContent = 'μ must be a non-negative number.';
+    warn.classList.add('visible');
+  } else if (tooLarge) {
+    warn.textContent = `μ must be smaller than the number of states (n = ${n}).`;
+    warn.classList.add('visible');
+  } else {
+    warn.classList.remove('visible');
+  }
+
+  // Fall back to identity when invalid
+  if (invalid || tooLarge) {
+    const A = [];
+    for (let i = 0; i < n; i++) { A[i] = new Float64Array(n); A[i][i] = 1; }
+    return A;
+  }
+
+  // ── Gaussian transition: A[i][j] ∝ exp(-(j-(i+μ))² / 2σ_t²) ──
+  const A = [];
+  for (let i = 0; i < n; i++) {
+    A[i] = new Float64Array(n);
+    let sum = 0;
+    for (let j = 0; j < n; j++) {
+      const d = j - (i + mu);
+      A[i][j] = Math.exp(-(d * d) / (2 * sigT * sigT));
+      sum += A[i][j];
+    }
+    for (let j = 0; j < n; j++) A[i][j] /= sum;
+  }
+  return A;
+}
+
+// ── Piano roll ────────────────────────────────────────────────────────────
+function drawPianoRoll(id, seq, color, dimColor, hlSet, cmpIdx) {
+  const C = getColors(), n = seq.length;
+  const w = n * PR_CELL + 40, h = NUM_PITCHES * PR_CELL + 24;
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = document.getElementById(id);
+  canvas.width = w*dpr; canvas.height = h*dpr;
+  canvas.style.width = w+'px'; canvas.style.height = h+'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = C.surface; ctx.fillRect(0,0,w,h);
+  const ox=40, oy=0;
+  for (let p=0; p<NUM_PITCHES; p++) {
+    const y = oy+(NUM_PITCHES-1-p)*PR_CELL;
+    if (p%2===0) { ctx.fillStyle=C.rowStripe; ctx.fillRect(ox,y,n*PR_CELL,PR_CELL); }
+    ctx.fillStyle=C.muted; ctx.font='10px SF Mono,Consolas,monospace';
+    ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText(NOTE_NAMES[p], ox-6, y+PR_CELL/2);
+  }
+  for (let s=0; s<n; s++) for (let p=0; p<NUM_PITCHES; p++) {
+    ctx.strokeStyle=C.border; ctx.lineWidth=0.5;
+    ctx.strokeRect(ox+s*PR_CELL, oy+(NUM_PITCHES-1-p)*PR_CELL, PR_CELL, PR_CELL);
+  }
+  const r=4;
+  for (let s=0; s<n; s++) {
+    const p=seq[s], x=ox+s*PR_CELL, y=oy+(NUM_PITCHES-1-p)*PR_CELL;
+    const hl=hlSet&&hlSet.has(s), cmp=cmpIdx===s;
+    ctx.fillStyle=(hl||cmp) ? color : dimColor;
+    ctx.beginPath(); ctx.roundRect(x+2,y+2,PR_CELL-4,PR_CELL-4,r); ctx.fill();
+    if (hl||cmp) {
+      ctx.shadowColor=cmp?C.cmpStroke:color; ctx.shadowBlur=cmp?14:10;
+      ctx.fillStyle=color; ctx.beginPath(); ctx.roundRect(x+2,y+2,PR_CELL-4,PR_CELL-4,r); ctx.fill();
+      ctx.shadowBlur=0;
+    }
+    if (cmp) { ctx.strokeStyle=C.cmpStroke; ctx.lineWidth=2; ctx.beginPath(); ctx.roundRect(x+1,y+1,PR_CELL-2,PR_CELL-2,r); ctx.stroke(); }
+  }
+  ctx.fillStyle=C.muted; ctx.font='9px SF Mono,Consolas,monospace'; ctx.textAlign='center';
+  for (let s=0; s<n; s++) ctx.fillText(s, ox+s*PR_CELL+PR_CELL/2, h-6);
+}
+
+// ── Initial probabilities ─────────────────────────────────────────────────
+function computeInitialProbs() {
+  const n = seqScore.length;
+  const pi = new Float64Array(n);
+  const k  = selectedInitStates.size;
+  if (k === 0) {
+    pi.fill(1 / n);                                 // uniform
+  } else {
+    const selShare = INIT_CONC / k;
+    const bgShare  = k < n ? (1 - INIT_CONC) / (n - k) : 0;
+    for (let j = 0; j < n; j++)
+      pi[j] = selectedInitStates.has(j) ? selShare : bgShare;
+  }
+  return pi;
+}
+
+function drawInitProbStrip(pi) {
+  const C = getColors(), n = seqScore.length;
+  const BAR_AREA = 44, BOT_PAD = 4;
+  const LABEL_W = 40;
+  // Responsive: fit to container width, just like the matrix canvases
+  const container = document.getElementById('piStripCanvas').parentElement;
+  const containerW = (container && container.clientWidth > 0) ? container.clientWidth : (n * PR_CELL + LABEL_W);
+  const cellW = Math.max(20, Math.floor((containerW - LABEL_W) / n));
+  lastPiCellW = cellW;
+  const w = n * cellW + LABEL_W, h = BAR_AREA + BOT_PAD;
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = document.getElementById('piStripCanvas');
+  canvas.width  = w * dpr; canvas.height = h * dpr;
+  canvas.style.width  = w + 'px'; canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = C.surface; ctx.fillRect(0, 0, w, h);
+
+  const ox = LABEL_W, baseline = BAR_AREA;
+  const maxPi = Math.max(...pi);
+
+  // Parse accent hex → rgb for selected-bar rgba
+  const ac  = C.accent;
+  const acR = parseInt(ac.slice(1,3), 16);
+  const acG = parseInt(ac.slice(3,5), 16);
+  const acB = parseInt(ac.slice(5,7), 16);
+
+  const uniform = selectedInitStates.size === 0;
+
+  for (let j = 0; j < n; j++) {
+    const sel      = selectedInitStates.has(j);
+    const normPi   = pi[j] / maxPi;
+    const barH     = Math.max(2, normPi * (BAR_AREA - 6));
+    const x = ox + j * cellW;
+    const y = baseline - barH;
+
+    if (sel) {
+      // Selected: solid accent fill + subtle glow border
+      ctx.globalAlpha = 1;
+      ctx.fillStyle   = `rgba(${acR},${acG},${acB},0.82)`;
+      ctx.beginPath(); ctx.roundRect(x + 3, y, cellW - 6, barH, [2, 2, 0, 0]); ctx.fill();
+      ctx.shadowColor = ac; ctx.shadowBlur = 6;
+      ctx.strokeStyle = ac; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.roundRect(x + 3, y, cellW - 6, barH, [2, 2, 0, 0]); ctx.stroke();
+      ctx.shadowBlur  = 0;
+    } else {
+      // Unselected: muted fill, dimmer when concentrated mode is active
+      ctx.globalAlpha = uniform ? 0.55 : 0.22;
+      ctx.fillStyle   = C.muted;
+      ctx.beginPath(); ctx.roundRect(x + 3, y, cellW - 6, barH, [2, 2, 0, 0]); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Baseline
+  ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(ox, baseline); ctx.lineTo(ox + n * cellW, baseline); ctx.stroke();
+
+  // Mode label at far right of gutter
+  ctx.font = '8px SF Mono,Consolas,monospace';
+  ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+  ctx.fillStyle = uniform ? C.muted : ac;
+  ctx.fillText(uniform ? 'uniform' : `${selectedInitStates.size} selected`, ox - 4, baseline);
+
+  // Rotated axis label
+  ctx.save();
+  ctx.font = '9px SF Mono,Consolas,monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = ac;
+  ctx.translate(12, h / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('π[j]', 0, 0);
+  ctx.restore();
+
+  // ── Equation-panel highlight: bar j in accent/π color (t=0 only) ──
+  if (selectedFwdCell !== null && selectedFwdCell.t === 0) {
+    const eqJ    = selectedFwdCell.j;
+    const normPj = pi[eqJ] / maxPi;
+    const barH   = Math.max(2, normPj * (BAR_AREA - 6));
+    const x      = ox + eqJ * cellW;
+    const y      = baseline - barH;
+    ctx.strokeStyle = ac; ctx.lineWidth = 2.5;
+    ctx.shadowColor = ac; ctx.shadowBlur = 10;
+    ctx.strokeRect(x + 3, y, cellW - 6, barH);
+    ctx.shadowBlur = 0;
+  }
+}
+
+// ── α[t-1] strip (previous step, shown above α[t]) ───────────────────────
+function drawAlphaPrevStrip(alpha) {
+  const C = getColors(), n = seqScore.length;
+  const canvas = document.getElementById('alphaPrevStripCanvas');
+  const BAR_AREA = 38, BOT_PAD = 4;
+  const w = n * PR_CELL + 40, h = BAR_AREA + BOT_PAD;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  canvas.style.display = 'block';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = C.surface; ctx.fillRect(0, 0, w, h);
+
+  const ox = 40, baseline = BAR_AREA;
+  const maxA = Math.max(...alpha) || 1;
+  const argJ = getArgmax(alpha);
+
+  const fc  = C.prevAlphaColor;
+  const fcR = parseInt(fc.slice(1,3), 16);
+  const fcG = parseInt(fc.slice(3,5), 16);
+  const fcB = parseInt(fc.slice(5,7), 16);
+
+  for (let j = 0; j < n; j++) {
+    const norm = alpha[j] / maxA;
+    const barH = Math.max(2, norm * (BAR_AREA - 6));
+    const x = ox + j * PR_CELL, y = baseline - barH;
+    const isBest = j === argJ;
+
+    ctx.globalAlpha = isBest ? 0.55 : 0.15 + 0.30 * norm;
+    ctx.fillStyle   = `rgba(${fcR},${fcG},${fcB},${isBest ? 0.55 : 0.40})`;
+    ctx.beginPath(); ctx.roundRect(x + 3, y, PR_CELL - 6, barH, [2, 2, 0, 0]); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // Baseline
+  ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(ox, baseline); ctx.lineTo(ox + n * PR_CELL, baseline); ctx.stroke();
+
+  // Dashed outline to distinguish from current strip
+  ctx.setLineDash([3, 3]);
+  ctx.strokeStyle = fc; ctx.lineWidth = 1; ctx.globalAlpha = 0.45;
+  ctx.strokeRect(ox, 1, n * PR_CELL, BAR_AREA - 1);
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+  // Gutter: step index
+  ctx.font = '8px SF Mono,Consolas,monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+  ctx.fillStyle = fc;
+  ctx.fillText(`t=${animStep - 1}`, ox - 4, baseline);
+
+  // Rotated axis label
+  ctx.save();
+  ctx.font = '9px SF Mono,Consolas,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = fc;
+  ctx.translate(12, h / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText('α[t-1,j]', 0, 0);
+  ctx.restore();
+}
+
+// ── Arrow-head helper ─────────────────────────────────────────────────────
+function drawArrowHead(ctx, x, y, angle, size) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(-size, -size * 0.42);
+  ctx.lineTo(-size,  size * 0.42);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+// ── Transition arrow diagram ──────────────────────────────────────────────
+// srcState defaults to selectedState; pass an override during sweep animation.
+// When srcState is null, only the node layout is drawn (no arrows).
+function drawTransitionArrows(A, srcState = selectedState) {
+  const canvas = document.getElementById('transArrowCanvas');
+  const C = getColors(), n = seqScore.length;
+  const w = n * PR_CELL + 40;
+  const h = 66;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = w * dpr;  canvas.height = h * dpr;
+  canvas.style.width  = w + 'px';  canvas.style.height = h + 'px';
+  canvas.style.display = 'block';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = C.surface; ctx.fillRect(0, 0, w, h);
+
+  const ox = 40, nodeY = 30, nodeR = 5, eps = 0.005;
+
+  // Parse noteB hex → r,g,b numbers for rgba usage
+  const nb = C.noteB;
+  const nbR = parseInt(nb.slice(1,3), 16);
+  const nbG = parseInt(nb.slice(3,5), 16);
+  const nbB = parseInt(nb.slice(5,7), 16);
+
+  // ── 1. All nodes dim (drawn first, behind arrows) ──────────────────────
+  for (let j = 0; j < n; j++) {
+    const nx = ox + j * PR_CELL + PR_CELL / 2;
+    ctx.strokeStyle = C.border;
+    ctx.fillStyle   = C.surface;
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath(); ctx.arc(nx, nodeY, nodeR, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+  }
+
+  // ── No source state: draw nodes-only layout (state space, no arrows) ───
+  if (srcState === null) {
+    ctx.save();
+    ctx.font = '9px SF Mono,Consolas,monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = C.noteB;
+    ctx.translate(14, h / 2); ctx.rotate(-Math.PI / 2);
+    ctx.fillText('p(j | i)', 0, 0);
+    ctx.restore();
+    return;
+  }
+
+  // ── 2. Arrows ──────────────────────────────────────────────────────────
+  const selNx = ox + srcState * PR_CELL + PR_CELL / 2;
+
+  // Pre-compute max probability so we can normalize against it
+  let maxProb = 0, maxProbJ = -1;
+  for (let j = 0; j < n; j++) {
+    if (A[srcState][j] >= eps && A[srcState][j] > maxProb) {
+      maxProb = A[srcState][j];
+      maxProbJ = j;
+    }
+  }
+
+  // alpha(normProb) — power curve gives steep contrast: weak arrows fall off quickly
+  const arrowAlpha = normProb => Math.pow(normProb, 1.8);
+
+  for (let j = 0; j < n; j++) {
+    const prob = A[srcState][j];
+    if (prob < eps) continue;
+
+    const normProb = prob / maxProb;
+    const isMax    = j === maxProbJ;
+
+    ctx.globalAlpha = arrowAlpha(normProb);
+    ctx.strokeStyle = nb;
+    ctx.fillStyle   = nb;
+    // Max arrow is 2× as thick as all other arrows (which share a fixed width)
+    ctx.lineWidth   = isMax ? 3.0 : 1.5;
+
+    const tgtNx = ox + j * PR_CELL + PR_CELL / 2;
+    const headSize = isMax ? 7 : 5;
+
+    if (j === selectedState) {
+      // Self-loop: cubic bezier arcing ABOVE the node
+      const loopW = 9, loopH = 22;
+      const lx0 = selNx - nodeR * 0.7, ly0 = nodeY - nodeR * 0.8;
+      const lx3 = selNx + nodeR * 0.7, ly3 = nodeY - nodeR * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(lx0, ly0);
+      ctx.bezierCurveTo(
+        selNx - loopW, nodeY - loopH,
+        selNx + loopW, nodeY - loopH,
+        lx3, ly3
+      );
+      ctx.stroke();
+      // Tangent at t=1 of cubic bezier: 3*(P3 - P2)
+      const tanX = 3 * (lx3 - (selNx + loopW));
+      const tanY = 3 * (ly3 - (nodeY - loopH));
+      ctx.lineWidth = 1;
+      drawArrowHead(ctx, lx3, ly3, Math.atan2(tanY, tanX), headSize);
+
+    } else {
+      // Transition to a different state
+      const goRight = tgtNx > selNx;
+      const startX  = selNx + (goRight ?  nodeR : -nodeR);
+      const endX    = tgtNx + (goRight ? -nodeR :  nodeR);
+      const cpX     = (startX + endX) / 2;
+      const dist    = Math.abs(tgtNx - selNx);
+      // Forward arcs curve BELOW the node line; backward arcs curve ABOVE
+      const cpY = goRight
+        ? nodeY + Math.min(20, dist * 0.46)
+        : nodeY - Math.min(20, dist * 0.46);
+
+      ctx.beginPath();
+      ctx.moveTo(startX, nodeY);
+      ctx.quadraticCurveTo(cpX, cpY, endX, nodeY);
+      ctx.stroke();
+      // Tangent at t=1 of quadratic bezier: 2*(endPoint - controlPoint)
+      ctx.lineWidth = 1;
+      drawArrowHead(ctx, endX, nodeY,
+        Math.atan2(2 * (nodeY - cpY), 2 * (endX - cpX)), headSize);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ── 3. Nodes redrawn on top so arrows don't overdraw them ─────────────
+  // Selected source node
+  ctx.strokeStyle = nb;
+  ctx.fillStyle   = `rgba(${nbR},${nbG},${nbB},0.25)`;
+  ctx.lineWidth   = 2;
+  ctx.beginPath(); ctx.arc(selNx, nodeY, nodeR, 0, Math.PI * 2);
+  ctx.fill(); ctx.stroke();
+
+  // Target nodes — glow intensity uses same contrast curve as arrows
+  for (let j = 0; j < n; j++) {
+    const prob = A[srcState][j];
+    if (prob < eps) continue;
+    const normProb = prob / maxProb;
+    const nx = ox + j * PR_CELL + PR_CELL / 2;
+    ctx.globalAlpha = arrowAlpha(normProb);
+    ctx.fillStyle   = `rgba(${nbR},${nbG},${nbB},${(0.15 + 0.55 * normProb).toFixed(2)})`;
+    ctx.strokeStyle = nb;
+    ctx.lineWidth   = j === maxProbJ ? 2.5 : 1.5;
+    ctx.beginPath(); ctx.arc(nx, nodeY, nodeR, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // Left-side label (rotated in the gutter, same pattern as axis labels)
+  ctx.save();
+  ctx.font = '9px SF Mono,Consolas,monospace';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle    = nb;
+  ctx.translate(14, h / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(`p(j | src=${srcState})`, 0, 0);
+  ctx.restore();
+}
+
+// ── Bar plot (observation likelihood over score states for selected perf note) ─
+// Always shown: falls back to seqPerf[0] when nothing is selected yet.
+function drawBarPlot(B) {
+  const canvas = document.getElementById('barPlotCanvas');
+  const isInit = selectedPerfStep === null;   // no step selected yet
+
+  const C = getColors(), n = seqScore.length;
+  const pitch = isInit ? seqPerf[0] : seqPerf[selectedPerfStep];
+
+  // Layout constants — keep bar area short relative to width
+  const BAR_AREA = 52;   // px of actual bar drawing space
+  const TOP_PAD  = 18;   // room for the label
+  const BOT_PAD  = 4;
+  const w = n * PR_CELL + 40;
+  const h = TOP_PAD + BAR_AREA + BOT_PAD;
+
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width  = w + 'px';
+  canvas.style.height = h + 'px';
+  canvas.style.display = 'block';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = C.surface;
+  ctx.fillRect(0, 0, w, h);
+
+  const ox = 40;
+  const baseline = TOP_PAD + BAR_AREA;
+
+  // Normalize to column-max so bars fill the available height nicely
+  let maxVal = 0;
+  for (let j = 0; j < n; j++) if (B[j][pitch] > maxVal) maxVal = B[j][pitch];
+  if (maxVal === 0) maxVal = 1;
+
+  // Bars
+  for (let j = 0; j < n; j++) {
+    const x = ox + j * PR_CELL;
+    if (isInit) {
+      // Uniform grey bars — no observation assumed yet
+      const barH = BAR_AREA - 2;
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle   = C.muted;
+      ctx.beginPath();
+      ctx.roundRect(x + 4, baseline - barH, PR_CELL - 8, barH, [2, 2, 0, 0]);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    } else {
+      const val  = B[j][pitch];
+      const barH = (val / maxVal) * (BAR_AREA - 2);
+      const y    = baseline - barH;
+      ctx.globalAlpha = 0.35 + 0.65 * (val / maxVal);
+      ctx.fillStyle   = C.noteA;
+      ctx.beginPath();
+      ctx.roundRect(x + 4, y, PR_CELL - 8, barH, [2, 2, 0, 0]);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Baseline
+  ctx.strokeStyle = C.border;
+  ctx.lineWidth   = 1;
+  ctx.beginPath();
+  ctx.moveTo(ox, baseline);
+  ctx.lineTo(ox + n * PR_CELL, baseline);
+  ctx.stroke();
+
+  // Label
+  ctx.fillStyle = isInit ? C.muted : C.muted;
+  ctx.font = '9px SF Mono,Consolas,monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(
+    isInit
+      ? `p(obs=? | state j)  — waiting for first observation`
+      : `p(obs=${NOTE_NAMES[pitch]} | state j)  — observation probabilities`,
+    ox + 2, 4
+  );
+}
+
+// ── Emission matrix ───────────────────────────────────────────────────────
+let lastEmCellW = EM_W;   // kept in sync so the click handler can use it
+let lastPiCellW = PR_CELL; // kept in sync so the piStrip click handler can use it
+
+function drawEmissionMatrix(B) {
+  const C = getColors(), n = seqScore.length;
+  const YLABEL = 52, XLABEL = 24;
+  // Compute cell size from available column width
+  // Note: avoid referencing the shadowed `EM_W` const before its declaration (TDZ)
+  const _emColW = document.getElementById('colEmission').clientWidth;
+  const cellSz  = _emColW > 0 ? Math.max(12, Math.floor((_emColW - YLABEL - 8) / n)) : 32;
+  lastEmCellW   = cellSz;
+  const EM_W    = cellSz, EM_H = cellSz;   // shadow globals for this draw call
+  const w = YLABEL + n*EM_W + 8;
+  const h = NUM_PITCHES*EM_H + XLABEL;
+  const dpr = window.devicePixelRatio||1;
+  const canvas = document.getElementById('emissionCanvas');
+  canvas.width=w*dpr; canvas.height=h*dpr;
+  canvas.style.width=w+'px'; canvas.style.height=h+'px';
+  const ctx=canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.fillStyle=C.surface; ctx.fillRect(0,0,w,h);
+  const ox=YLABEL, oy=0;
+
+  // Global max for color normalization
+  let maxP=0;
+  for (let j=0; j<n; j++) for (let p=0; p<NUM_PITCHES; p++) if (B[j][p]>maxP) maxP=B[j][p];
+  if (maxP===0) maxP=1;
+
+  const [lr,lg,lb]=C.emLow, [hr,hg,hb]=C.emHigh;
+
+  for (let j=0; j<n; j++) {
+    for (let p=0; p<NUM_PITCHES; p++) {
+      const x=ox+j*EM_W, y=oy+(NUM_PITCHES-1-p)*EM_H;
+      const t=B[j][p]/maxP;
+      ctx.fillStyle=`rgb(${Math.round(lr+(hr-lr)*t)},${Math.round(lg+(hg-lg)*t)},${Math.round(lb+(hb-lb)*t)})`;
+      ctx.fillRect(x+1,y+1,EM_W-2,EM_H-2);
+      ctx.fillStyle=C.cellText;
+      ctx.font='7px SF Mono,Consolas,monospace';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(B[j][p].toFixed(2), x+EM_W/2, y+EM_H/2);
+    }
+    // Highlight selected column
+    if (j===selectedState) {
+      const x=ox+j*EM_W;
+      ctx.strokeStyle=C.noteB; ctx.lineWidth=2.5;
+      ctx.shadowColor=C.noteB; ctx.shadowBlur=8;
+      ctx.strokeRect(x+1.5, oy+1.5, EM_W-3, NUM_PITCHES*EM_H-3);
+      ctx.shadowBlur=0;
+    }
+    // Triangle marker at the score note pitch for this column
+    const sp = seqScore[j];
+    const sx = ox+j*EM_W+EM_W/2;
+    const sy = oy+(NUM_PITCHES-1-sp)*EM_H+EM_H-4;
+    ctx.fillStyle = C.noteB;
+    ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(sx-4,sy+5); ctx.lineTo(sx+4,sy+5); ctx.closePath(); ctx.fill();
+  }
+
+  // Grid
+  ctx.strokeStyle=C.border; ctx.lineWidth=0.5;
+  for (let j=0; j<=n; j++) { ctx.beginPath(); ctx.moveTo(ox+j*EM_W,oy); ctx.lineTo(ox+j*EM_W,oy+NUM_PITCHES*EM_H); ctx.stroke(); }
+  for (let p=0; p<=NUM_PITCHES; p++) { ctx.beginPath(); ctx.moveTo(ox,oy+p*EM_H); ctx.lineTo(ox+n*EM_W,oy+p*EM_H); ctx.stroke(); }
+
+  // Pitch labels (y-axis tick labels)
+  ctx.fillStyle=C.muted; ctx.font='10px SF Mono,Consolas,monospace';
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for (let p=0; p<NUM_PITCHES; p++) ctx.fillText(NOTE_NAMES[p], ox-6, oy+(NUM_PITCHES-1-p)*EM_H+EM_H/2);
+
+  // Y-axis label: "Pitch (p) ↑"
+  ctx.save();
+  ctx.translate(12, oy + NUM_PITCHES*EM_H/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.font='9px SF Mono,Consolas,monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle=C.noteA;
+  ctx.fillText('Pitch (p) ↑', 0, 0);
+  ctx.restore();
+
+  // X-axis state index labels
+  ctx.font='9px SF Mono,Consolas,monospace'; ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.fillStyle=C.muted;
+  for (let j=0; j<n; j++) ctx.fillText(j, ox+j*EM_W+EM_W/2, oy+NUM_PITCHES*EM_H+4);
+
+  // X-axis label
+  ctx.fillStyle=C.noteB;
+  ctx.fillText('Score state (j) →', ox+n*EM_W/2, oy+NUM_PITCHES*EM_H+16);
+
+  // ── Equation-panel highlight: column j (dim) + cell (j, obs) (bright) in noteA ──
+  if (selectedFwdCell !== null) {
+    const eqJ   = selectedFwdCell.j;
+    const eqObs = seqPerf[selectedFwdCell.t];
+    // Subtle column highlight
+    ctx.strokeStyle = C.noteA; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.35;
+    ctx.strokeRect(ox + eqJ*EM_W + 1.5, oy + 1.5, EM_W - 3, NUM_PITCHES*EM_H - 3);
+    ctx.globalAlpha = 1;
+    // Bright cell highlight for the specific (j, obs) entry
+    const cy = oy + (NUM_PITCHES - 1 - eqObs) * EM_H;
+    ctx.strokeStyle = C.noteA; ctx.lineWidth = 2.5;
+    ctx.shadowColor = C.noteA; ctx.shadowBlur = 10;
+    ctx.strokeRect(ox + eqJ*EM_W + 1.5, cy + 1.5, EM_W - 3, EM_H - 3);
+    ctx.shadowBlur = 0;
+  }
+}
+
+// ── Transition matrix ─────────────────────────────────────────────────────
+function drawTransitionMatrix(A) {
+  const C = getColors(), n = seqScore.length;
+  const YLABEL = 52, XLABEL = 32;
+  // Compute cell size from available column width
+  // Note: avoid referencing the shadowed `TR_CELL` const before its declaration (TDZ)
+  const _trColW = document.getElementById('colTransition').clientWidth;
+  const TR_CELL = _trColW > 0 ? Math.max(12, Math.floor((_trColW - YLABEL - 8) / n)) : 32;  // shadow global
+  const w = YLABEL + n*TR_CELL + 8;
+  const h = n*TR_CELL + XLABEL;
+  const dpr=window.devicePixelRatio||1;
+  const canvas=document.getElementById('transitionCanvas');
+  canvas.width=w*dpr; canvas.height=h*dpr;
+  canvas.style.width=w+'px'; canvas.style.height=h+'px';
+  const ctx=canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  ctx.fillStyle=C.surface; ctx.fillRect(0,0,w,h);
+  const ox=YLABEL, oy=0;
+  const [lr,lg,lb]=C.trLow, [hr,hg,hb]=C.trHigh;
+
+  for (let i=0; i<n; i++) for (let j=0; j<n; j++) {
+    const x=ox+j*TR_CELL, y=oy+i*TR_CELL, t=A[i][j];
+    ctx.fillStyle=`rgb(${Math.round(lr+(hr-lr)*t)},${Math.round(lg+(hg-lg)*t)},${Math.round(lb+(hb-lb)*t)})`;
+    ctx.fillRect(x+1,y+1,TR_CELL-2,TR_CELL-2);
+    if (A[i][j]>0.005) {
+      ctx.fillStyle=C.cellText; ctx.font='8px SF Mono,Consolas,monospace';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(A[i][j].toFixed(2), x+TR_CELL/2, y+TR_CELL/2);
+    }
+  }
+
+  // Grid
+  ctx.strokeStyle=C.border; ctx.lineWidth=0.5;
+  for (let j=0; j<=n; j++) { ctx.beginPath(); ctx.moveTo(ox+j*TR_CELL,oy); ctx.lineTo(ox+j*TR_CELL,oy+n*TR_CELL); ctx.stroke(); }
+  for (let i=0; i<=n; i++) { ctx.beginPath(); ctx.moveTo(ox,oy+i*TR_CELL); ctx.lineTo(ox+n*TR_CELL,oy+i*TR_CELL); ctx.stroke(); }
+
+  // Row index labels (y-axis ticks)
+  ctx.fillStyle=C.muted; ctx.font='9px SF Mono,Consolas,monospace';
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for (let i=0; i<n; i++) ctx.fillText(i, ox-6, oy+i*TR_CELL+TR_CELL/2);
+
+  // Column index labels (x-axis ticks)
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  for (let j=0; j<n; j++) ctx.fillText(j, ox+j*TR_CELL+TR_CELL/2, oy+n*TR_CELL+4);
+
+  // X-axis label
+  ctx.fillStyle=C.noteB;
+  ctx.fillText('Next state (j) →', ox+n*TR_CELL/2, oy+n*TR_CELL+16);
+
+  // Y-axis label — both axes are score states, use same noteB color
+  ctx.save();
+  ctx.translate(12, oy + n*TR_CELL/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.font='9px SF Mono,Consolas,monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillStyle=C.noteB;
+  ctx.fillText('Current state (i) →', 0, 0);
+  ctx.restore();
+
+  // ── Equation-panel highlight: column j in noteB/teal (t>0 only) ──
+  if (selectedFwdCell !== null && selectedFwdCell.t > 0) {
+    const eqJ = selectedFwdCell.j;
+    ctx.strokeStyle = C.noteB; ctx.lineWidth = 2.5;
+    ctx.shadowColor = C.noteB; ctx.shadowBlur = 8;
+    ctx.strokeRect(ox + eqJ*TR_CELL + 1.5, oy + 1.5, TR_CELL - 3, n*TR_CELL - 3);
+    ctx.shadowBlur = 0;
+  }
+}
+
+// ── Forward algorithm ─────────────────────────────────────────────────────
+function computeForwardStep(t, B, A) {
+  const n = seqScore.length, obs = seqPerf[t];
+  const alpha = new Float64Array(n);
+  if (t === 0) {
+    const pi = computeInitialProbs();
+    for (let j = 0; j < n; j++) alpha[j] = pi[j] * B[j][obs];
+  } else {
+    const prev = fwdMatrix[t - 1];
+    for (let j = 0; j < n; j++) {
+      let s = 0;
+      for (let i = 0; i < n; i++) s += prev[i] * A[i][j];
+      alpha[j] = B[j][obs] * s;
+    }
+  }
+  // Normalise → posterior filtering distribution p(sₜ=j | o₁..oₜ)
+  const tot = alpha.reduce((a, b) => a + b, 0);
+  if (tot > 0) for (let j = 0; j < n; j++) alpha[j] /= tot;
+  return alpha;
+}
+
+function getArgmax(arr) {
+  let best = 0;
+  for (let j = 1; j < arr.length; j++) if (arr[j] > arr[best]) best = j;
+  return best;
+}
+
+// ── α[t] strip ────────────────────────────────────────────────────────────
+// isPartial = true  → showing partial transition sums ∑_{i'≤i} α[t-1]·A (no emission yet)
+// isPartial = false → showing final normalised α[t] (emission applied)
+function drawAlphaStrip(alpha, isPartial = false) {
+  const C = getColors(), n = seqScore.length;
+  const canvas = document.getElementById('alphaStripCanvas');
+  const BAR_AREA = 50, BOT_PAD = 4;
+  const w = n * PR_CELL + 40, h = BAR_AREA + BOT_PAD;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  canvas.style.display = 'block';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = C.surface; ctx.fillRect(0, 0, w, h);
+
+  const ox = 40, baseline = BAR_AREA;
+  const maxA = Math.max(...alpha) || 1;
+  const argJ = getArgmax(alpha);
+
+  const fc  = C.fwdColor;
+  const fcR = parseInt(fc.slice(1,3), 16);
+  const fcG = parseInt(fc.slice(3,5), 16);
+  const fcB = parseInt(fc.slice(5,7), 16);
+
+  for (let j = 0; j < n; j++) {
+    const norm  = alpha[j] / maxA;
+    const barH  = Math.max(2, norm * (BAR_AREA - 8));
+    const x = ox + j * PR_CELL, y = baseline - barH;
+    const isBest = j === argJ;
+
+    ctx.globalAlpha = isBest ? 1.0 : 0.35 + 0.45 * norm;
+    ctx.fillStyle   = `rgba(${fcR},${fcG},${fcB},${isBest ? 0.88 : 0.65})`;
+    ctx.beginPath(); ctx.roundRect(x + 3, y, PR_CELL - 6, barH, [2, 2, 0, 0]); ctx.fill();
+
+    // Only show glow + triangle on the finalised strip
+    if (isBest && !isPartial) {
+      ctx.shadowColor = fc; ctx.shadowBlur = 8;
+      ctx.strokeStyle = fc; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.roundRect(x + 3, y, PR_CELL - 6, barH, [2, 2, 0, 0]); ctx.stroke();
+      ctx.shadowBlur = 0;
+      const tx = x + PR_CELL / 2;
+      ctx.fillStyle = fc;
+      ctx.beginPath(); ctx.moveTo(tx - 5, y - 8); ctx.lineTo(tx + 5, y - 8); ctx.lineTo(tx, y - 2); ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Baseline
+  ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(ox, baseline); ctx.lineTo(ox + n * PR_CELL, baseline); ctx.stroke();
+
+  // Dashed outline while accumulating, to signal "not yet finalised"
+  if (isPartial) {
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = fc; ctx.lineWidth = 1; ctx.globalAlpha = 0.45;
+    ctx.strokeRect(ox, 1, n * PR_CELL, BAR_AREA - 1);
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+  }
+
+  // Gutter label
+  ctx.font = '8px SF Mono,Consolas,monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+  ctx.fillStyle = fc;
+  if (isPartial) {
+    const iLabel = sweepState !== null ? `i=${sweepState}` : '…';
+    ctx.fillText(`t=${animStep}  ${iLabel} →`, ox - 4, baseline);
+  } else if (animStep < 0) {
+    ctx.fillText(`init  ▸ j=${argJ}`, ox - 4, baseline);
+  } else {
+    ctx.fillText(`t=${animStep}  ▸ j=${argJ}`, ox - 4, baseline);
+  }
+
+  // Rotated axis label
+  ctx.save();
+  ctx.font = '9px SF Mono,Consolas,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = fc;
+  ctx.translate(12, h / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText(isPartial ? '∑ᵢ α·p(j|i)' : (animStep < 0 ? 'α[0,j]=π·B' : 'α[t,j]'), 0, 0);
+  ctx.restore();
+}
+
+// ── Propagation arrows (all states simultaneously, weighted by α[t-1]) ───
+function drawPropagationArrows(A, alphaPrev) {
+  const canvas = document.getElementById('transArrowCanvas');
+  canvas.style.display = 'block';
+  const C = getColors(), n = seqScore.length;
+  const w = n * PR_CELL + 40, h = 66;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = C.surface; ctx.fillRect(0, 0, w, h);
+
+  const ox = 40, nodeY = 30, nodeR = 5, eps = 0.005;
+  const nb  = C.noteB;
+  const nbR = parseInt(nb.slice(1,3), 16);
+  const nbG = parseInt(nb.slice(3,5), 16);
+  const nbBv= parseInt(nb.slice(5,7), 16);
+  const maxPrev = Math.max(...alphaPrev) || 1;
+
+  // Find global max contribution for arrow normalisation
+  let maxC = 0;
+  for (let i = 0; i < n; i++) {
+    if (alphaPrev[i] < eps) continue;
+    for (let j = 0; j < n; j++) {
+      const c = alphaPrev[i] * A[i][j];
+      if (c > maxC) maxC = c;
+    }
+  }
+  if (maxC === 0) maxC = 1;
+
+  // 1. Dim nodes
+  for (let j = 0; j < n; j++) {
+    const nx = ox + j * PR_CELL + PR_CELL / 2;
+    const nrm = alphaPrev[j] / maxPrev;
+    ctx.globalAlpha = 0.15 + 0.55 * Math.pow(nrm, 0.6);
+    ctx.strokeStyle = nb; ctx.fillStyle = `rgba(${nbR},${nbG},${nbBv},${(0.05 + 0.2 * nrm).toFixed(2)})`;
+    ctx.lineWidth = 1 + nrm;
+    ctx.beginPath(); ctx.arc(nx, nodeY, nodeR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // 2. Arrows — one set per source state, opacity ∝ contribution
+  for (let i = 0; i < n; i++) {
+    if (alphaPrev[i] < eps) continue;
+    const selNx = ox + i * PR_CELL + PR_CELL / 2;
+    for (let j = 0; j < n; j++) {
+      const contrib = alphaPrev[i] * A[i][j];
+      if (contrib < eps * 0.05) continue;
+      const norm = contrib / maxC;
+      ctx.globalAlpha = Math.pow(norm, 1.4);
+      ctx.strokeStyle = nb; ctx.fillStyle = nb;
+      ctx.lineWidth = 0.6 + norm * 2;
+      const tgtNx = ox + j * PR_CELL + PR_CELL / 2;
+      if (j === i) {
+        const loopW = 7, loopH = 18;
+        const lx0 = selNx - nodeR * 0.7, ly0 = nodeY - nodeR * 0.8;
+        const lx3 = selNx + nodeR * 0.7, ly3 = nodeY - nodeR * 0.8;
+        ctx.beginPath(); ctx.moveTo(lx0, ly0);
+        ctx.bezierCurveTo(selNx - loopW, nodeY - loopH, selNx + loopW, nodeY - loopH, lx3, ly3);
+        ctx.stroke();
+        ctx.lineWidth = 0.8;
+        drawArrowHead(ctx, lx3, ly3, Math.atan2(3*(ly3-(nodeY-loopH)), 3*(lx3-(selNx+loopW))), 4);
+      } else {
+        const goR = tgtNx > selNx;
+        const sx  = selNx + (goR ?  nodeR : -nodeR);
+        const ex  = tgtNx + (goR ? -nodeR :  nodeR);
+        const dist = Math.abs(tgtNx - selNx);
+        const cpX = (sx + ex) / 2;
+        const cpY = goR ? nodeY + Math.min(18, dist * 0.44) : nodeY - Math.min(18, dist * 0.44);
+        ctx.beginPath(); ctx.moveTo(sx, nodeY); ctx.quadraticCurveTo(cpX, cpY, ex, nodeY); ctx.stroke();
+        ctx.lineWidth = 0.8;
+        drawArrowHead(ctx, ex, nodeY, Math.atan2(2*(nodeY-cpY), 2*(ex-cpX)), 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Rotated label
+  ctx.save();
+  ctx.font = '9px SF Mono,Consolas,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = nb;
+  ctx.translate(14, h / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText('propagation', 0, 0);
+  ctx.restore();
+}
+
+// ── Forward variable matrix ───────────────────────────────────────────────
+function drawForwardMatrix() {
+  const C = getColors();
+  const n = seqScore.length;
+  const T = seqPerf.length;
+  const canvas = document.getElementById('forwardMatrixCanvas');
+
+  const LABEL_W = 40, LABEL_H = 28, TOP_PAD = 6;
+
+  // Fixed square cells matching PR_CELL; left column has flex-shrink:0
+  const cellW = PR_CELL, cellH = PR_CELL;
+
+  const w = n * cellW + LABEL_W;
+  const h = T * cellH + LABEL_H + TOP_PAD;
+
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = C.surface; ctx.fillRect(0, 0, w, h);
+
+  const ox = LABEL_W;
+  // y-top of row t  (t=0 at bottom, t=T-1 at top of cell area)
+  const rowTop = t => TOP_PAD + (T - 1 - t) * cellH;
+
+  // Parse colors for rgba fills
+  const fc  = C.fwdColor;
+  const fcR = parseInt(fc.slice(1,3), 16), fcG = parseInt(fc.slice(3,5), 16), fcB = parseInt(fc.slice(5,7), 16);
+  const nb  = C.noteB;
+  const nbR = parseInt(nb.slice(1,3), 16), nbG = parseInt(nb.slice(3,5), 16), nbB = parseInt(nb.slice(5,7), 16);
+
+  // ── 1. Cells ─────────────────────────────────────────────────────────────
+  for (let t = 0; t < T; t++) {
+    const ry   = rowTop(t);
+    // Three possible states for a row:
+    //   isPartialRow — sweep in progress, showing partial transition sums (no emission yet)
+    //   done         — row fully computed and revealed
+    //   ghost        — not yet reached
+    const isPartialRow = t === animStep && sweepPartialAlpha !== null;
+    const done         = t <= matrixRevealedUpTo && !!fwdMatrix[t];
+
+    if (isPartialRow) {
+      // Show partial ∑_{i'≤sweepState} α[t-1][i']·A[i'][j]  (before emission)
+      const partial = sweepPartialAlpha;
+      const maxP    = Math.max(...partial) || 1;
+      const argJ    = getArgmax(partial);
+
+      for (let j = 0; j < n; j++) {
+        const norm   = partial[j] / maxP;
+        const x      = ox + j * cellW;
+        const isPath = j === argJ;
+
+        ctx.fillStyle = C.border;
+        ctx.fillRect(x, ry, cellW, cellH);
+        ctx.globalAlpha = 0.08 + 0.62 * norm;
+        ctx.fillStyle = `rgb(${fcR},${fcG},${fcB})`;
+        ctx.fillRect(x + 1, ry + 1, cellW - 2, cellH - 2);
+        ctx.globalAlpha = 1;
+
+        if (isPath) {
+          ctx.globalAlpha = 0.22;
+          ctx.fillStyle = `rgb(${nbR},${nbG},${nbB})`;
+          ctx.fillRect(x + 1, ry + 1, cellW - 2, cellH - 2);
+          ctx.globalAlpha = 1;
+          // Dashed accent border — signals "in progress, not yet emission-weighted"
+          ctx.strokeStyle = C.accent; ctx.lineWidth = 2;
+          ctx.setLineDash([3, 3]);
+          ctx.strokeRect(x + 2, ry + 2, cellW - 4, cellH - 4);
+          ctx.shadowColor = C.accent; ctx.shadowBlur = 6;
+          ctx.strokeRect(x + 2, ry + 2, cellW - 4, cellH - 4);
+          ctx.shadowBlur = 0; ctx.setLineDash([]);
+        }
+      }
+    } else if (done) {
+      const alpha  = fwdMatrix[t];
+      const maxA   = Math.max(...alpha) || 1;
+      const argJ   = getArgmax(alpha);
+      const isCurRow = t === matrixRevealedUpTo;
+
+      for (let j = 0; j < n; j++) {
+        const norm    = alpha[j] / maxA;
+        const x       = ox + j * cellW;
+        const isPath  = j === argJ;
+
+        // ── Base: dim border slot + amber fill ──
+        ctx.fillStyle = C.border;
+        ctx.fillRect(x, ry, cellW, cellH);
+        ctx.globalAlpha = 0.10 + 0.78 * norm;
+        ctx.fillStyle = `rgb(${fcR},${fcG},${fcB})`;
+        ctx.fillRect(x + 1, ry + 1, cellW - 2, cellH - 2);
+        ctx.globalAlpha = 1;
+
+        // ── Path highlight: teal tint for all path cells ──
+        if (isPath) {
+          ctx.globalAlpha = isCurRow ? 0.20 : 0.28;
+          ctx.fillStyle = `rgb(${nbR},${nbG},${nbB})`;
+          ctx.fillRect(x + 1, ry + 1, cellW - 2, cellH - 2);
+          ctx.globalAlpha = 1;
+        }
+
+        // ── Cell border ──
+        if (isPath) {
+          if (isCurRow) {
+            // Current cell — solid accent glow, matching DTW demo style
+            ctx.strokeStyle = C.accent; ctx.lineWidth = 2;
+            ctx.strokeRect(x + 2, ry + 2, cellW - 4, cellH - 4);
+            ctx.shadowColor = C.accent; ctx.shadowBlur = 8;
+            ctx.strokeRect(x + 2, ry + 2, cellW - 4, cellH - 4);
+            ctx.shadowBlur = 0;
+          } else {
+            // Past path cell — teal border
+            ctx.strokeStyle = nb; ctx.lineWidth = 1.5;
+            ctx.strokeRect(x + 1.5, ry + 1.5, cellW - 3, cellH - 3);
+          }
+        }
+
+        // ── Cell value ──
+        if (alpha[j] > 0.005) {
+          ctx.fillStyle = C.cellText;
+          ctx.font = '7px SF Mono,Consolas,monospace';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(alpha[j].toFixed(2), x + cellW / 2, ry + cellH / 2);
+        }
+
+        // ── Selected-cell overlay ──
+        if (selectedFwdCell && selectedFwdCell.t === t && selectedFwdCell.j === j) {
+          ctx.strokeStyle = C.fwdColor; ctx.lineWidth = 2.5;
+          ctx.shadowColor = C.fwdColor; ctx.shadowBlur = 14;
+          ctx.strokeRect(x + 1.5, ry + 1.5, cellW - 3, cellH - 3);
+          ctx.shadowBlur = 0;
+        }
+      }
+    } else {
+      // Uncomputed row: ghost
+      ctx.globalAlpha = 0.20;
+      ctx.fillStyle = C.border;
+      ctx.fillRect(ox, ry, n * cellW, cellH);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = C.surface; ctx.lineWidth = 1;
+      for (let j = 1; j < n; j++) {
+        const x = ox + j * cellW;
+        ctx.beginPath(); ctx.moveTo(x, ry); ctx.lineTo(x, ry + cellH); ctx.stroke();
+      }
+    }
+  }
+
+  // ── 2. Grid lines ─────────────────────────────────────────────────────────
+  ctx.strokeStyle = C.surface; ctx.lineWidth = 1;
+  for (let t = 0; t <= T; t++) {
+    const y = TOP_PAD + (T - t) * cellH;
+    ctx.beginPath(); ctx.moveTo(ox, y); ctx.lineTo(ox + n * cellW, y); ctx.stroke();
+  }
+  ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+  ctx.strokeRect(ox, TOP_PAD, n * cellW, T * cellH);
+
+  // ── 3. Path line connecting argmax cells ──────────────────────────────────
+  if (matrixRevealedUpTo >= 1) {
+    const pts = [];
+    for (let t = 0; t <= matrixRevealedUpTo; t++) {
+      if (!fwdMatrix[t]) continue;
+      pts.push({ t, j: getArgmax(fwdMatrix[t]) });
+    }
+    if (pts.length >= 2) {
+      ctx.strokeStyle = nb; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.6;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      pts.forEach(({ t, j }, i) => {
+        const x = ox + j * cellW + cellW / 2;
+        const y = rowTop(t) + cellH / 2;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+  // Dashed extension from last solid path point to current partial argmax
+  if (sweepPartialAlpha !== null && matrixRevealedUpTo >= 0 && fwdMatrix[matrixRevealedUpTo]) {
+    const prevJ = getArgmax(fwdMatrix[matrixRevealedUpTo]);
+    const curJ  = getArgmax(sweepPartialAlpha);
+    const x0 = ox + prevJ * cellW + cellW / 2;
+    const y0 = rowTop(matrixRevealedUpTo) + cellH / 2;
+    const x1 = ox + curJ  * cellW + cellW / 2;
+    const y1 = rowTop(animStep) + cellH / 2;
+    ctx.strokeStyle = nb; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.30;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+  }
+
+  // ── 3b. t-1 row highlight (when a cell is selected and t > 0) ────────────
+  if (selectedFwdCell !== null && selectedFwdCell.t > 0) {
+    const prevT  = selectedFwdCell.t - 1;
+    const ry     = rowTop(prevT);
+    const pc     = C.prevAlphaColor;
+    const pcR    = parseInt(pc.slice(1,3), 16);
+    const pcG    = parseInt(pc.slice(3,5), 16);
+    const pcB    = parseInt(pc.slice(5,7), 16);
+    // Subtle blue tint fill over the row
+    ctx.globalAlpha = 0.08;
+    ctx.fillStyle   = `rgb(${pcR},${pcG},${pcB})`;
+    ctx.fillRect(ox, ry, n * cellW, cellH);
+    ctx.globalAlpha = 1;
+    // Dashed blue border around the entire row
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = pc; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.80;
+    ctx.shadowColor = pc; ctx.shadowBlur = 6;
+    ctx.strokeRect(ox + 0.75, ry + 0.75, n * cellW - 1.5, cellH - 1.5);
+    ctx.setLineDash([]); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
+
+  // ── 4. Y-axis labels ─────────────────────────────────────────────────────
+  ctx.font = '9px SF Mono,Consolas,monospace';
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let t = 0; t < T; t++) {
+    const isPartialLbl  = t === animStep && sweepPartialAlpha !== null;
+    const isFwdPrevRow  = selectedFwdCell !== null && selectedFwdCell.t > 0 && t === selectedFwdCell.t - 1;
+    ctx.globalAlpha = t <= matrixRevealedUpTo ? 1 : (isPartialLbl ? 0.70 : 0.28);
+    ctx.fillStyle   = isFwdPrevRow ? C.prevAlphaColor : C.muted;
+    ctx.fillText(t, ox - 4, rowTop(t) + cellH / 2);
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.save();
+  ctx.font = '9px SF Mono,Consolas,monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = C.noteA;
+  ctx.translate(12, TOP_PAD + T * cellH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Performance (t) →', 0, 0);
+  ctx.restore();
+
+  // ── 5. X-axis labels ─────────────────────────────────────────────────────
+  ctx.font = '9px SF Mono,Consolas,monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillStyle = C.muted;
+  for (let j = 0; j < n; j++)
+    ctx.fillText(j, ox + j * cellW + cellW / 2, TOP_PAD + T * cellH + 4);
+  ctx.fillStyle = C.noteB;
+  ctx.fillText('Score state (j) →', ox + n * cellW / 2, TOP_PAD + T * cellH + 16);
+}
+
+// ── Equation panel helpers ────────────────────────────────────────────────
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1,3), 16);
+  const g = parseInt(hex.slice(3,5), 16);
+  const b = parseInt(hex.slice(5,7), 16);
+  return `rgb(${r},${g},${b})`;
+}
+
+// Build the LaTeX string for α[t,j] with color-coded components.
+// Colors: \style{color:rgb(...)}{...} requires the MathJax html extension.
+function buildHMMEquationLatex(t, j) {
+  const C    = getColors();
+  const B    = computeEmission();
+  const A    = computeTransition();
+  const pi   = computeInitialProbs();
+  const obs  = seqPerf[t];
+  const note = NOTE_NAMES[obs];
+  const alpha = fwdMatrix[t];
+
+  // Per-component colors (no '#' — TeX treats # as a macro character)
+  const cObs  = hexToRgb(C.noteA);          // emission
+  const cTrans = hexToRgb(C.noteB);          // transition
+  const cPi   = hexToRgb(C.accent);          // initial probs
+  const cFwd  = hexToRgb(C.fwdColor);        // α[t,j]
+  const cPrev = hexToRgb(C.prevAlphaColor);  // α[t-1,i]
+
+  const sc = (color, content) => `\\style{color:${color}}{${content}}`;
+
+  // Show: line 1 — α̂ = (1/Z_t) · unnorm_j  = normVal
+  //        line 2 — Z_t = ∑_k unnorm_k
+  // Only the final normalized value (from the matrix cell) appears as a number.
+  const normVal = alpha ? alpha[j].toFixed(3) : '{-}';
+
+  if (t === 0) {
+    const unnormJ = `${sc(cPi, '\\pi[j]')} \\cdot ${sc(cObs, `p(\\text{obs}{=}\\text{${note}} \\mid \\text{state}{=}j)`)}`;
+    const unnormK = `${sc(cPi, '\\pi[k]')} \\cdot ${sc(cObs, `p(\\text{obs}{=}\\text{${note}} \\mid \\text{state}{=}k)`)}`;
+    return `\\begin{aligned}
+${sc(cFwd, `\\hat{\\alpha}[0,\\,j{=}${j}]`)} &= \\dfrac{1}{Z_0} \\cdot ${unnormJ} = ${sc(cFwd, normVal)} \\\\[8pt]
+Z_0 &= \\sum_k ${unnormK}
+\\end{aligned}`;
+  } else {
+    const unnormJ = `${sc(cObs, `p(\\text{obs}{=}\\text{${note}} \\mid \\text{state}{=}j)`)} \\cdot \\sum_i ${sc(cPrev, '\\alpha[t{-}1,i]')} \\cdot ${sc(cTrans, `p(\\text{state}'{=}j \\mid \\text{state}{=}i)`)}`;
+    const unnormK = `${sc(cObs, `p(\\text{obs}{=}\\text{${note}} \\mid \\text{state}{=}k)`)} \\cdot \\sum_i ${sc(cPrev, '\\alpha[t{-}1,i]')} \\cdot ${sc(cTrans, `p(\\text{state}'{=}k \\mid \\text{state}{=}i)`)}`;
+    return `\\begin{aligned}
+${sc(cFwd, `\\hat{\\alpha}[t{=}${t},\\,j{=}${j}]`)} &= \\dfrac{1}{Z_t} \\cdot ${unnormJ} = ${sc(cFwd, normVal)} \\\\[8pt]
+Z_t &= \\sum_k ${unnormK}
+\\end{aligned}`;
+  }
+}
+
+function updateEquationPanel() {
+  const panel   = document.getElementById('equationPanel');
+  const content = document.getElementById('equationContent');
+  if (!selectedFwdCell) {
+    panel.style.display = 'none';
+    lastEquationKey = null;
+    return;
+  }
+  panel.style.display = 'block';
+  const { t, j } = selectedFwdCell;
+  const key = `${t},${j}`;
+  if (key === lastEquationKey) return;   // same cell — skip re-typesetting
+  lastEquationKey = key;
+  content.innerHTML = `\\[ ${buildHMMEquationLatex(t, j)} \\]`;
+  if (window.MathJax && MathJax.typesetPromise) {
+    MathJax.typesetPromise([content]).catch(err => console.warn('MathJax error:', err));
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────
+function render() {
+  const C=getColors(), B=computeEmission(), A=computeTransition();
+
+  // Cross-highlight from selected forward matrix cell overrides regular selection
+  const perfCmpIdx = selectedFwdCell !== null ? selectedFwdCell.t
+                   : selectedPerfStep !== null ? selectedPerfStep
+                   : undefined;
+
+  drawPianoRoll('canvasPerf', seqPerf, C.noteA, C.noteADim, null, perfCmpIdx);
+
+  // ── Score panel stack (top → bottom) ───────────────────────────────────
+  // 1a. α[t-1] strip — previous step (shown only when t > 0)
+  if (animStep > 0 && fwdMatrix[animStep - 1]) {
+    drawAlphaPrevStrip(fwdMatrix[animStep - 1]);
+  } else {
+    document.getElementById('alphaPrevStripCanvas').style.display = 'none';
+  }
+
+  // 1b. α[t] strip — always shown:
+  //   animStep = -1  → initial α₀ = π·B[:,o₀] (displayed before any step)
+  //   sweep active   → partial transition sums ∑ α[t-1]·A (no emission yet)
+  //   otherwise      → finalised α[t]
+  if (animStep < 0) {
+    // Show π[j] directly — initial probs before any observation is made.
+    // (π × uniform_B normalises back to π, so this is the honest initial state.)
+    drawAlphaStrip(computeInitialProbs(), false);
+  } else {
+    // sweepPartialAlpha is used for the matrix partial row at t=0 too, but the strip
+    // should show final values there (init reveal is cell-by-cell in matrix only,
+    // not an accumulation of transition sums). Only show partial label for t > 0.
+    const isTransSweep = sweepPartialAlpha !== null && animStep > 0;
+    const alphaDisp    = isTransSweep ? sweepPartialAlpha : fwdMatrix[animStep];
+    if (alphaDisp) drawAlphaStrip(alphaDisp, isTransSweep);
+    else document.getElementById('alphaStripCanvas').style.display = 'none';
+  }
+
+  // 2. Transition arrows: sweep mode > propagation mode > manual-select mode > nodes-only
+  if (sweepState !== null) {
+    drawTransitionArrows(A, sweepState);
+  } else if (animStep > 0) {
+    drawPropagationArrows(A, fwdMatrix[animStep - 1]);
+  } else if (animStep === 0 && fwdMatrix[0] && matrixRevealedUpTo === 0) {
+    // Show propagation arrows only after the t=0 row is fully revealed
+    drawPropagationArrows(A, fwdMatrix[0]);
+  } else {
+    drawTransitionArrows(A);   // null srcState → nodes-only (or selected state → arrows)
+  }
+
+  // 3. Observation bar plot — always shown (falls back to o₀ when nothing selected)
+  drawBarPlot(B);
+
+  // 4. Score piano roll — argmax of α[t] shown as alignment (cmpIdx)
+  const argJ = (animStep >= 0 && fwdMatrix[animStep]) ? getArgmax(fwdMatrix[animStep]) : undefined;
+  const scoreHlSet = selectedFwdCell !== null ? new Set([selectedFwdCell.j])
+                   : selectedState !== null   ? new Set([selectedState])
+                   : null;
+  drawPianoRoll('canvasScore', seqScore, C.noteB, C.noteBDim,
+    scoreHlSet, argJ !== undefined ? argJ : undefined);
+
+  // ── Forward variable matrix ────────────────────────────────────────────
+  drawForwardMatrix();
+
+  // ── Equation panel ─────────────────────────────────────────────────────
+  updateEquationPanel();
+
+  // ── HMM Parameters panel ───────────────────────────────────────────────
+  drawInitProbStrip(computeInitialProbs());
+  drawTransitionMatrix(A);
+  drawEmissionMatrix(B);
+}
+
+// ── Forward algorithm playback controls ──────────────────────────────────
+function cancelSweep() {
+  clearTimeout(sweepTimer); sweepTimer = null; sweepState = null; sweepPartialAlpha = null;
+}
+
+function stopPlay() {
+  clearTimeout(playTimer); playTimer = null;
+  isPlaying = false;
+  updatePlaybackUI();
+}
+
+function updatePlaybackUI() {
+  const T = seqPerf.length;
+  document.getElementById('stepCounter').textContent =
+    animStep < 0 ? `— / ${T}` : `${animStep + 1} / ${T}`;
+  document.getElementById('btnBack').disabled  = animStep < 0;
+  document.getElementById('btnStep').disabled  = animStep >= T - 1;
+  document.getElementById('btnPlay').textContent = isPlaying ? '⏸ Pause' : '▶ Play';
+  document.getElementById('btnPlay').classList.toggle('active', isPlaying);
+  document.getElementById('btnPlay').disabled = animStep >= T - 1 && !isPlaying;
+}
+
+// ── t=0 init reveal: sweep through cells j=0…n-1, showing α[0][j] one by one ─
+// (α[0][j] = π[j]·B[j,o₀] — no source-state accumulation, just a direct reveal)
+function startInitReveal(onDone) {
+  const n    = seqScore.length;
+  const full = fwdMatrix[0];   // already computed before this is called
+  const sweepMs = Math.min(playSpeedMs() * 0.45, 450);
+  const delay   = Math.max(28, sweepMs / n);
+  let idx = 0;
+
+  function next() {
+    if (!isPlaying) { cancelSweep(); return; }
+    if (idx < n) {
+      // Reveal the next cell by copying its final value into sweepPartialAlpha
+      if (!sweepPartialAlpha) sweepPartialAlpha = new Float64Array(n);
+      sweepPartialAlpha[idx] = full[idx];
+      idx++;
+      render();
+      sweepTimer = setTimeout(next, delay);
+    } else {
+      sweepPartialAlpha = null;
+      render();
+      onDone();
+    }
+  }
+  sweepTimer = setTimeout(next, 60);
+}
+
+// Run the in-step sweep animation (left-to-right highlight of source states).
+// For each source state i, accumulates its contribution α[t-1][i]·A[i][j] into
+// sweepPartialAlpha so both the strip and the matrix row update incrementally.
+function startSweep(t, A, onDone) {
+  const alphaPrev = fwdMatrix[t - 1];
+  const n   = seqScore.length;
+  const eps = 0.005;
+  // Only sweep states that carry meaningful probability
+  const vis = Array.from({length: n}, (_, i) => i).filter(i => alphaPrev[i] > eps);
+  if (vis.length === 0) { onDone(); return; }
+
+  const sweepMs = Math.min(playSpeedMs() * 0.45, 450);
+  const delay   = Math.max(28, sweepMs / vis.length);
+  let idx = 0;
+
+  function next() {
+    if (!isPlaying) { cancelSweep(); return; }
+    if (idx < vis.length) {
+      const i = vis[idx++];
+      sweepState = i;
+      // Initialise or accumulate: partial[j] += α[t-1][i] · A[i][j]
+      if (!sweepPartialAlpha) sweepPartialAlpha = new Float64Array(n);
+      for (let j = 0; j < n; j++) sweepPartialAlpha[j] += alphaPrev[i] * A[i][j];
+      render();
+      sweepTimer = setTimeout(next, delay);
+    } else {
+      sweepState = null;
+      sweepPartialAlpha = null;
+      render();
+      onDone();
+    }
+  }
+  sweepTimer = setTimeout(next, 60);
+}
+
+function stepForward(fromPlay = false) {
+  cancelSweep();
+  const T = seqPerf.length;
+  if (animStep >= T - 1) { if (isPlaying) stopPlay(); return; }
+
+  const t = animStep + 1;
+  const B = computeEmission(), A = computeTransition();
+  animStep = t;
+  selectedPerfStep = t;
+  fwdMatrix[t] = computeForwardStep(t, B, A);
+
+  // Manual steps reveal the row immediately; play mode animates via callbacks below
+  if (!fromPlay) matrixRevealedUpTo = t;
+
+  render();
+  updatePlaybackUI();
+
+  if (fromPlay) {
+    const stepDur = playSpeedMs();
+    if (t > 0) {
+      // Sweep through source states — accumulate partial α and reveal row when done
+      startSweep(t, A, () => {
+        matrixRevealedUpTo = t;
+        render();
+        if (!isPlaying) return;
+        playTimer = setTimeout(() => stepForward(true), Math.max(120, stepDur * 0.25));
+      });
+    } else {
+      // t=0: reveal cells j=0…n-1 one by one (no source-state sweep)
+      startInitReveal(() => {
+        matrixRevealedUpTo = 0;
+        render();
+        if (!isPlaying) return;
+        playTimer = setTimeout(() => stepForward(true), Math.max(120, stepDur * 0.25));
+      });
+    }
+  }
+}
+
+function stepBack() {
+  cancelSweep();
+  if (animStep < 0) return;
+  animStep--;
+  matrixRevealedUpTo = animStep;   // keep matrix in sync with step
+  selectedPerfStep = animStep >= 0 ? animStep : null;
+  selectedFwdCell = null; lastEquationKey = null;
+  render();
+  updatePlaybackUI();
+}
+
+function resetAnim() {
+  stopPlay(); cancelSweep();
+  animStep = -1; fwdMatrix = [];
+  matrixRevealedUpTo = -1;
+  selectedPerfStep = null;
+  selectedFwdCell = null; lastEquationKey = null;
+  render(); updatePlaybackUI();
+}
+
+// Resize the performance sequence to newT timesteps (1–15).
+// Existing notes are kept; new steps get a small random walk from the last pitch.
+function setT(newT) {
+  newT = Math.max(1, Math.min(15, Math.round(newT)));
+  if (newT === seqPerf.length) return;
+  stopPlay(); cancelSweep();
+  animStep = -1; fwdMatrix = [];
+  matrixRevealedUpTo = -1;
+  selectedPerfStep = null;
+  selectedFwdCell = null; lastEquationKey = null;
+
+  if (newT > seqPerf.length) {
+    while (seqPerf.length < newT) {
+      const prev  = seqPerf[seqPerf.length - 1] ?? seqScore[0];
+      const delta = Math.floor(Math.random() * 3) - 1;   // −1, 0, or +1
+      seqPerf.push(Math.max(0, Math.min(NUM_PITCHES - 1, prev + delta)));
+    }
+  } else {
+    seqPerf = seqPerf.slice(0, newT);
+  }
+
+  render(); updatePlaybackUI();
+}
+
+// Apply a named performance preset, reset animation, and sync the T input.
+function applyPerfPreset(key) {
+  const seq = PERF_PRESETS[key];
+  if (!seq) return;
+  stopPlay(); cancelSweep();
+  animStep = -1; fwdMatrix = [];
+  matrixRevealedUpTo = -1;
+  selectedPerfStep = null;
+  selectedFwdCell = null; lastEquationKey = null;
+  seqPerf = [...seq];
+  document.getElementById('tInput').value = seqPerf.length;
+  render(); updatePlaybackUI();
+}
+
+function togglePlay() {
+  if (isPlaying) {
+    stopPlay();
+  } else {
+    if (animStep >= seqPerf.length - 1) resetAnim();
+    isPlaying = true;
+    updatePlaybackUI();
+    stepForward(true);
+  }
+}
+
+// ── Matrices panel single toggle ──────────────────────────────────────────
+document.getElementById('toggleMatrices').addEventListener('click', () => {
+  const row  = document.getElementById('matricesRow');
+  const pi   = document.getElementById('piStripSection');
+  const btn  = document.getElementById('toggleMatrices');
+  const hidden = row.style.display === 'none';
+  row.style.display = hidden ? '' : 'none';
+  pi.style.display  = hidden ? '' : 'none';
+  btn.textContent   = hidden ? '▾' : '▸';
+});
+
+// Button listeners
+document.getElementById('btnReset').addEventListener('click', resetAnim);
+document.getElementById('btnBack' ).addEventListener('click', stepBack);
+document.getElementById('btnStep' ).addEventListener('click', () => stepForward(false));
+document.getElementById('btnPlay' ).addEventListener('click', togglePlay);
+
+// Performance preset dropdown
+document.getElementById('perfPreset').addEventListener('change', e => {
+  applyPerfPreset(e.target.value);
+});
+
+// T (timesteps) input
+document.getElementById('tInput').addEventListener('change', e => {
+  const v = parseInt(e.target.value, 10);
+  if (!isNaN(v)) { setT(v); e.target.value = seqPerf.length; }
+});
+document.getElementById('tInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') e.target.blur();
+});
+
+// ── Event handlers ────────────────────────────────────────────────────────
+document.getElementById('canvasPerf').addEventListener('click', e => {
+  const rect=document.getElementById('canvasPerf').getBoundingClientRect();
+  const step=Math.floor((e.clientX-rect.left-40)/PR_CELL);
+  const pitch=NUM_PITCHES-1-Math.floor((e.clientY-rect.top)/PR_CELL);
+  if (step>=0&&step<seqPerf.length&&pitch>=0&&pitch<NUM_PITCHES) {
+    seqPerf[step]=pitch;
+    // Toggle selection: clicking same step again deselects
+    selectedPerfStep = selectedPerfStep===step ? null : step;
+    render();
+  }
+});
+
+document.getElementById('canvasScore').addEventListener('click', e => {
+  const rect=document.getElementById('canvasScore').getBoundingClientRect();
+  const step=Math.floor((e.clientX-rect.left-40)/PR_CELL);
+  const pitch=NUM_PITCHES-1-Math.floor((e.clientY-rect.top)/PR_CELL);
+  if (step>=0&&step<seqScore.length&&pitch>=0&&pitch<NUM_PITCHES) {
+    seqScore[step]=pitch;
+    selectedState=step;
+    render();
+  }
+});
+
+document.getElementById('piStripCanvas').addEventListener('click', e => {
+  const rect = document.getElementById('piStripCanvas').getBoundingClientRect();
+  const j = Math.floor((e.clientX - rect.left - 40) / lastPiCellW);
+  if (j >= 0 && j < seqScore.length) {
+    if (selectedInitStates.has(j)) selectedInitStates.delete(j);
+    else selectedInitStates.add(j);
+    render();
+  }
+});
+
+// Forward matrix cell click — show equation panel for fully-revealed cells only
+document.getElementById('forwardMatrixCanvas').addEventListener('click', e => {
+  const canvas = document.getElementById('forwardMatrixCanvas');
+  const rect   = canvas.getBoundingClientRect();
+  const LABEL_W = 40, TOP_PAD = 6;
+  const cellW = PR_CELL, cellH = PR_CELL;
+  const T = seqPerf.length;
+
+  const canvasX = e.clientX - rect.left;
+  const canvasY = e.clientY - rect.top;
+  const j       = Math.floor((canvasX - LABEL_W) / cellW);
+  const rowIdx  = Math.floor((canvasY - TOP_PAD) / cellH);
+  const t       = T - 1 - rowIdx;
+
+  if (j < 0 || j >= seqScore.length || t < 0 || t >= T) return;
+  // Only allow clicking fully-revealed cells
+  if (t > matrixRevealedUpTo || !fwdMatrix[t]) return;
+
+  // Toggle: clicking same cell again closes the panel
+  if (selectedFwdCell && selectedFwdCell.t === t && selectedFwdCell.j === j) {
+    selectedFwdCell = null;
+  } else {
+    selectedFwdCell = { t, j };
+  }
+  lastEquationKey = null;  // force re-typeset
+  render();
+});
+
+document.getElementById('closeEquation').addEventListener('click', () => {
+  selectedFwdCell = null;
+  lastEquationKey = null;
+  render();
+});
+
+document.getElementById('emissionCanvas').addEventListener('click', e => {
+  const rect=document.getElementById('emissionCanvas').getBoundingClientRect();
+  const j=Math.floor((e.clientX-rect.left-52)/lastEmCellW);
+  if (j>=0&&j<seqScore.length) {
+    selectedState=selectedState===j?null:j;
+    render();
+  }
+});
+
+document.getElementById('emissionModel').addEventListener('change', () => {
+  const isG=document.getElementById('emissionModel').value==='gaussian';
+  document.getElementById('sigmaCtl').style.opacity=isG?'1':'0.4';
+  document.getElementById('sigmaCtl').style.pointerEvents=isG?'auto':'none';
+  render();
+});
+
+document.getElementById('sigmaSlider').addEventListener('input', e => {
+  document.getElementById('sigmaLabel').textContent=(+e.target.value).toFixed(1);
+  render();
+});
+
+document.getElementById('transMuInput').addEventListener('input', () => { resetAnim(); });
+
+document.getElementById('transSigmaSlider').addEventListener('input', e => {
+  document.getElementById('transSigmaLabel').textContent = (+e.target.value).toFixed(1);
+  resetAnim();
+});
+
+function updateThemeToggle() {
+  const light=document.documentElement.getAttribute('data-theme')==='light';
+  document.getElementById('themeToggle').textContent=light?'☾ Dark':'☀ Light';
+}
+document.getElementById('themeToggle').addEventListener('click', () => {
+  const light=document.documentElement.getAttribute('data-theme')==='light';
+  const next=light?'dark':'light';
+  document.documentElement.setAttribute('data-theme',next);
+  localStorage.setItem('theme',next);
+  updateThemeToggle();
+  render();
+});
+
+updateThemeToggle();
+updatePlaybackUI();
+render();
+
+// Re-render matrices when the panel is resized (handles zoom changes too)
+if (window.ResizeObserver) {
+  let _resizeDebounce = null;
+  new ResizeObserver(() => {
+    clearTimeout(_resizeDebounce);
+    _resizeDebounce = setTimeout(render, 60);
+  }).observe(document.querySelector('.matrices-panel'));
+}
+</script>
+</body>
+</html>

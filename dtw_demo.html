@@ -10,7 +10,14 @@
   })();
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dynamic Time Warping — Music Alignment Visualization</title>
+<title>Offline Music Alignment with Dynamic Time Warping</title>
+<script>
+  MathJax = {
+    tex: { packages: {'[+]': ['html']}, inlineMath: [['$','$']] },
+    startup: { typeset: false }
+  };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" defer></script>
 <style>
   :root {
     --bg: #0f1117;
@@ -25,6 +32,10 @@
     --path: #ffd93d;
     --cell-low: #1a2332;
     --cell-high: #4a1942;
+    --error: #ff4d6a;
+    --pred-diag:  #ffbe76;
+    --pred-vert:  #6ab04c;
+    --pred-horiz: #74b9ff;
     --font: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   }
 
@@ -41,6 +52,10 @@
     --path: #b07d00;
     --cell-low: #d2e4f8;
     --cell-high: #f0cce8;
+    --error: #d63050;
+    --pred-diag:  #e0900a;
+    --pred-vert:  #4a8a2a;
+    --pred-horiz: #2978d4;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -74,10 +89,10 @@
 
   .layout {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    grid-template-rows: auto auto;
-    gap: 20px;
-    max-width: 1400px;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto auto auto;
+    gap: 16px;
+    max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
     align-items: start;
@@ -107,16 +122,72 @@
     height: 8px;
     border-radius: 50%;
     display: inline-block;
+    flex-shrink: 0;
   }
 
-  .dot-a { background: var(--note-a); }
-  .dot-b { background: var(--note-b); }
+  .dot-a    { background: var(--note-a); }
+  .dot-b    { background: var(--note-b); }
   .dot-path { background: var(--path); }
 
-  .seq-panel-a { grid-column: 1; grid-row: 1; }
-  .matrix-panel { grid-column: 2; grid-row: 1; }
-  .seq-panel-b { grid-column: 3; grid-row: 1; }
-  .controls-panel { grid-column: 1 / 4; grid-row: 2; }
+  /* ── Panel grid rows ── */
+  .perf-panel     { grid-column: 1; grid-row: 1; }
+  .main-panel     { grid-column: 1; grid-row: 2; }
+  .equation-panel { grid-column: 1; grid-row: 3; display: none; }
+  .controls-panel { grid-column: 1; grid-row: 4; }
+  .settings-panel { grid-column: 1; grid-row: 5; }
+
+  /* ── Score + Cost Matrix side-by-side ── */
+  .main-flex {
+    display: flex;
+    gap: 0;
+    align-items: flex-start;
+  }
+
+  .main-score {
+    flex-shrink: 0;
+  }
+
+  .main-matrix {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .matrix-divider {
+    width: 1px;
+    background: var(--border);
+    align-self: stretch;
+    margin: 0 16px;
+    flex-shrink: 0;
+    min-height: 40px;
+  }
+
+  /* ── Performance panel header controls ── */
+  .perf-header-controls {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  /* ── T input ── */
+  .t-num-input {
+    width: 48px;
+    background: var(--border);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-family: var(--font);
+    font-size: 0.75rem;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.15s;
+    -moz-appearance: textfield;
+  }
+  .t-num-input::-webkit-inner-spin-button,
+  .t-num-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+  .t-num-input:focus { border-color: var(--accent); }
 
   .piano-roll {
     position: relative;
@@ -190,6 +261,107 @@
     accent-color: var(--accent);
   }
 
+  .design-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+
+  .design-control select {
+    background: var(--border);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-family: var(--font);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 24px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b8fa3'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+  }
+
+  .design-control select:focus {
+    border-color: var(--accent);
+  }
+
+  .controls-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  .weights-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+
+  .weight-field {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .weight-field label {
+    font-size: 0.65rem;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    font-family: var(--font);
+  }
+
+  .weight-field input[type="number"] {
+    width: 52px;
+    background: var(--border);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-family: var(--font);
+    font-size: 0.75rem;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.15s;
+    -moz-appearance: textfield;
+  }
+
+  .weight-field input[type="number"]::-webkit-inner-spin-button,
+  .weight-field input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+  .weight-field input[type="number"]:focus {
+    border-color: var(--accent);
+  }
+
+  .weight-field input[type="number"].invalid {
+    border-color: var(--error) !important;
+    background: rgba(255, 77, 106, 0.12);
+  }
+
+  .weights-warning {
+    flex-basis: 100%;
+    text-align: center;
+    font-size: 0.7rem;
+    color: var(--error);
+    display: none;
+    margin-top: 2px;
+  }
+
+  .weights-warning.visible {
+    display: block;
+  }
+
   .status {
     font-size: 0.75rem;
     color: var(--text-muted);
@@ -204,6 +376,7 @@
     margin-top: 8px;
     font-size: 0.7rem;
     color: var(--text-muted);
+    flex-wrap: wrap;
   }
 
   .legend-item {
@@ -216,19 +389,7 @@
     width: 12px;
     height: 12px;
     border-radius: 3px;
-  }
-
-  .info-bar {
-    text-align: center;
-    padding: 0 20px 16px;
-    max-width: 800px;
-    margin: 0 auto;
-  }
-
-  .info-bar p {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    line-height: 1.6;
+    flex-shrink: 0;
   }
 
   .theme-toggle {
@@ -254,15 +415,58 @@
     color: #fff;
   }
 
-  @media (max-width: 1100px) {
-    .layout {
-      grid-template-columns: 1fr 1fr;
-      grid-template-rows: auto auto auto;
-    }
-    .seq-panel-a { grid-column: 1; grid-row: 1; }
-    .seq-panel-b { grid-column: 2; grid-row: 1; }
-    .matrix-panel { grid-column: 1 / 3; grid-row: 2; }
-    .controls-panel { grid-column: 1 / 3; grid-row: 3; }
+  .equation-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .equation-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    transition: color 0.15s;
+  }
+  .equation-close:hover { color: var(--text); background: none; }
+
+  .equation-content {
+    font-size: 1rem;
+    overflow-x: auto;
+    padding: 4px 0;
+  }
+
+  .equation-legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  .equation-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .equation-legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 700px) {
+    header h1 { font-size: 1.2rem; }
+    .main-flex { flex-direction: column; }
+    .matrix-divider { width: auto; height: 1px; margin: 12px 0; align-self: stretch; }
+    .perf-header-controls { margin-left: 0; }
   }
 </style>
 </head>
@@ -271,42 +475,85 @@
 <button class="theme-toggle" id="themeToggle"></button>
 
 <header>
-  <a href="index.html" style="display:inline-block;margin-bottom:10px;font-size:0.75rem;color:var(--text-muted);text-decoration:none;letter-spacing:0.5px;">← Music Alignment</a>
-  <h1>Dynamic Time Warping</h1>
-  <p>Interactive music alignment algorithm visualization</p>
+  <a href="intro_alignment.html" style="display:inline-block;margin-bottom:10px;font-size:0.75rem;color:var(--text-muted);text-decoration:none;letter-spacing:0.5px;">← Introduction to Alignment</a>
+  <h1>Offline Music Alignment with Dynamic Time Warping</h1>
 </header>
 
-<div class="info-bar">
-  <p>Click cells in the piano rolls to toggle notes. Use the controls to step through the DTW algorithm and see how the cost matrix is filled and the optimal alignment path is found.</p>
-</div>
-
 <div class="layout">
-  <div class="panel seq-panel-a">
-    <div class="panel-title"><span class="dot dot-a"></span> Performance</div>
+
+  <!-- Row 1: Performance -->
+  <div class="panel perf-panel">
+    <div class="panel-title">
+      <span class="dot dot-a"></span> Performance
+      <div class="perf-header-controls">
+        <div class="design-control">
+          <span>Pattern</span>
+          <select id="perfPreset">
+            <option value="mixed">Mixed</option>
+            <option value="perfect">Perfect</option>
+            <option value="deletions">Deletions</option>
+            <option value="insertions">Insertions</option>
+          </select>
+        </div>
+        <div class="design-control">
+          <span>T =</span>
+          <input type="number" id="tInput" class="t-num-input" value="10" min="1" max="15">
+        </div>
+      </div>
+    </div>
     <div class="piano-roll" id="pianoRollA">
       <canvas id="canvasA"></canvas>
     </div>
   </div>
 
-  <div class="panel matrix-panel">
-    <div class="panel-title"><span class="dot dot-path"></span> Cost Matrix &amp; Warping Path</div>
-    <canvas id="matrixCanvas"></canvas>
-    <div class="legend">
-      <div class="legend-item"><div class="legend-swatch" style="background:var(--cell-low)"></div> Low cost</div>
-      <div class="legend-item"><div class="legend-swatch" style="background:var(--cell-high)"></div> High cost</div>
-      <div class="legend-item"><div class="legend-swatch" style="background:var(--path)"></div> Optimal path</div>
-      <div class="legend-item"><div class="legend-swatch" style="background:#ff9f43"></div> Candidates</div>
-      <div class="legend-item"><div class="legend-swatch" style="background:var(--accent); opacity:0.5"></div> Current cell</div>
+  <!-- Row 2: Score + Cost Matrix side by side -->
+  <div class="panel main-panel">
+    <div class="main-flex">
+      <div class="main-score">
+        <div class="panel-title"><span class="dot dot-b"></span> Score</div>
+        <div class="piano-roll" id="pianoRollB">
+          <canvas id="canvasB"></canvas>
+        </div>
+      </div>
+      <div class="matrix-divider"></div>
+      <div class="main-matrix">
+        <div class="panel-title"><span class="dot dot-path"></span> Cost Matrix &amp; Warping Path</div>
+        <canvas id="matrixCanvas"></canvas>
+        <div class="legend">
+          <div class="legend-item"><div class="legend-swatch" style="background:var(--cell-low)"></div> Low cost</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:var(--cell-high)"></div> High cost</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:var(--path)"></div> Optimal path</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:#ff9f43"></div> Candidates</div>
+          <div class="legend-item"><div class="legend-swatch" style="background:var(--accent); opacity:0.5"></div> Current cell</div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div class="panel seq-panel-b">
-    <div class="panel-title"><span class="dot dot-b"></span> Score</div>
-    <div class="piano-roll" id="pianoRollB">
-      <canvas id="canvasB"></canvas>
+  <!-- Row 3: Equation panel (hidden by default) -->
+  <div class="panel equation-panel" id="equationPanel">
+    <div class="equation-header">
+      <div class="panel-title" style="margin-bottom:0"><span class="dot dot-path"></span> Cell Computation</div>
+      <button class="equation-close" id="closeEquation" title="Close">✕</button>
+    </div>
+    <div class="equation-content" id="equationContent"></div>
+    <div class="equation-legend">
+      <div class="equation-legend-item">
+        <div class="equation-legend-swatch" style="background:var(--pred-diag)"></div>
+        <span>(i−1, j−1) diagonal</span>
+      </div>
+      <div class="equation-legend-item">
+        <div class="equation-legend-swatch" style="background:var(--pred-vert)"></div>
+        <span>(i−1, j) vertical</span>
+      </div>
+      <div class="equation-legend-item">
+        <div class="equation-legend-swatch" style="background:var(--pred-horiz)"></div>
+        <span>(i, j−1) horizontal</span>
+      </div>
     </div>
   </div>
 
+  <!-- Row 4: Playback controls -->
   <div class="panel controls-panel">
     <div class="controls">
       <button id="btnReset">Reset</button>
@@ -322,6 +569,37 @@
       <div class="status" id="status">Click a piano roll to edit, then press Play</div>
     </div>
   </div>
+
+  <!-- Row 5: DTW settings -->
+  <div class="panel settings-panel">
+    <div class="controls">
+      <div class="design-control">
+        <span>Local cost</span>
+        <select id="costFnSelect">
+          <option value="absolute">Absolute interval</option>
+          <option value="binary">Binary</option>
+        </select>
+      </div>
+      <div class="controls-divider"></div>
+      <div class="weights-control">
+        <span>Weights</span>
+        <div class="weight-field">
+          <label>α<sub>i−1,j−1</sub></label>
+          <input type="number" id="wDiag" value="1" min="0" step="0.1">
+        </div>
+        <div class="weight-field">
+          <label>α<sub>i−1,j</sub></label>
+          <input type="number" id="wVert" value="1" min="0" step="0.1">
+        </div>
+        <div class="weight-field">
+          <label>α<sub>i,j−1</sub></label>
+          <input type="number" id="wHoriz" value="1" min="0" step="0.1">
+        </div>
+      </div>
+      <div class="weights-warning" id="weightsWarning">Weights must be valid numbers (integer or decimal).</div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -329,6 +607,36 @@ const NOTE_NAMES = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'C\''];
 const NUM_PITCHES = NOTE_NAMES.length;
 const CELL = 36;
 const PR_CELL = 32;
+
+// ── Performance presets ────────────────────────────────────────────────────
+const PERF_PRESETS = {
+  mixed:      [2, 3, 4, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 3, 2],
+  perfect:    [2, 2, 3, 4, 4, 3, 2, 1, 0, 0, 2, 2, 3, 4, 4],
+  deletions:  [2, 3, 4, 3, 2, 1, 0, 2, 3, 4, 3, 2, 1, 0, 1],
+  insertions: [2, 2, 2, 3, 4, 4, 3, 3, 2, 1, 0, 0, 0, 1, 2],
+};
+
+let currentT  = 10;
+let seqA = PERF_PRESETS.mixed.slice(0, currentT);
+let seqB = [2, 2, 3, 4, 4, 3, 2, 1, 0, 0];
+
+let costMatrix = [];
+let dpMatrix = [];
+let fillOrder = [];
+let warpPath = [];
+let tracebackSteps = [];
+let animStep = -1;
+let playing = false;
+let animTimer = null;
+let phase = 'idle';
+let selectedCell = null;  // {i, j} clicked in matrix
+let lastEquationKey = null;
+
+const PRED_COLORS = [
+  { di: -1, dj: -1, css: '--pred-diag',  hex: '#ffbe76', rgba: 'rgba(255,190,118,' },
+  { di: -1, dj:  0, css: '--pred-vert',  hex: '#6ab04c', rgba: 'rgba(106,176,76,'  },
+  { di:  0, dj: -1, css: '--pred-horiz', hex: '#74b9ff', rgba: 'rgba(116,185,255,' },
+];
 
 function getColors() {
   const light = document.documentElement.getAttribute('data-theme') === 'light';
@@ -352,21 +660,26 @@ function getColors() {
   };
 }
 
-let seqA = [3, 4, 5, 5, 4, 3, 2, 1, 1, 2, 3, 3];
-let seqB = [3, 3, 4, 5, 5, 4, 3, 2, 1, 1, 2, 3];
+// ── Preset / T controls ────────────────────────────────────────────────────
+function applyPerfPreset() {
+  const preset = document.getElementById('perfPreset').value;
+  seqA = PERF_PRESETS[preset].slice(0, currentT);
+  resetAnim();
+}
 
-let costMatrix = [];
-let dpMatrix = [];
-let fillOrder = [];
-let warpPath = [];
-let tracebackSteps = [];
-let animStep = -1;
-let playing = false;
-let animTimer = null;
-let phase = 'idle';
+function setT() {
+  const raw = parseInt(document.getElementById('tInput').value);
+  currentT = Math.max(1, Math.min(15, isNaN(raw) ? 10 : raw));
+  document.getElementById('tInput').value = currentT;
+  const preset = document.getElementById('perfPreset').value;
+  seqA = PERF_PRESETS[preset].slice(0, currentT);
+  resetAnim();
+}
 
 function costFn(a, b) {
-  return (a - b) * (a - b);
+  const mode = document.getElementById('costFnSelect').value;
+  if (mode === 'binary') return a === b ? 0 : 1;
+  return Math.abs(a - b);
 }
 
 function computeDTW() {
@@ -385,20 +698,24 @@ function computeDTW() {
     }
   }
 
+  const wD = parseFloat(document.getElementById('wDiag').value)  || 1;
+  const wV = parseFloat(document.getElementById('wVert').value)  || 1;
+  const wH = parseFloat(document.getElementById('wHoriz').value) || 1;
+
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < m; j++) {
       const c = costMatrix[i][j];
       if (i === 0 && j === 0) {
         dpMatrix[i][j] = c;
       } else if (i === 0) {
-        dpMatrix[i][j] = c + dpMatrix[i][j - 1];
+        dpMatrix[i][j] = c + wH * dpMatrix[i][j - 1];
       } else if (j === 0) {
-        dpMatrix[i][j] = c + dpMatrix[i - 1][j];
+        dpMatrix[i][j] = c + wV * dpMatrix[i - 1][j];
       } else {
         dpMatrix[i][j] = c + Math.min(
-          dpMatrix[i - 1][j],
-          dpMatrix[i][j - 1],
-          dpMatrix[i - 1][j - 1]
+          wD * dpMatrix[i - 1][j - 1],
+          wV * dpMatrix[i - 1][j],
+          wH * dpMatrix[i][j - 1]
         );
       }
       fillOrder.push([i, j]);
@@ -689,6 +1006,41 @@ function drawMatrix() {
   ctx.fillStyle = C.noteA;
   ctx.fillText('Performance →', 0, 0);
   ctx.restore();
+
+  // Selection overlay
+  if (selectedCell) {
+    const {i: si, j: sj} = selectedCell;
+    if (dpMatrix[si] && dpMatrix[si][sj] !== Infinity) {
+      const light = document.documentElement.getAttribute('data-theme') === 'light';
+      const predHex = light
+        ? ['#e0900a', '#4a8a2a', '#2978d4']
+        : ['#ffbe76', '#6ab04c', '#74b9ff'];
+
+      PRED_COLORS.forEach(({di, dj}, k) => {
+        const pi = si + di, pj = sj + dj;
+        if (pi < 0 || pj < 0) return;
+        const px = ox + pj * CELL;
+        const py = oy + (n - 1 - pi) * CELL;
+        ctx.globalAlpha = 0.28;
+        ctx.fillStyle = predHex[k];
+        ctx.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = predHex[k];
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(px + 2, py + 2, CELL - 4, CELL - 4);
+      });
+
+      // Selected cell: bright outline
+      const sx = ox + sj * CELL;
+      const sy = oy + (n - 1 - si) * CELL;
+      ctx.strokeStyle = C.text || '#e2e4ea';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = C.text || '#e2e4ea';
+      ctx.shadowBlur = 6;
+      ctx.strokeRect(sx + 1, sy + 1, CELL - 2, CELL - 2);
+      ctx.shadowBlur = 0;
+    }
+  }
 }
 
 function getFillInfo() {
@@ -742,10 +1094,14 @@ function render() {
   const C = getColors();
   const hl = getHighlightedSteps();
   const cmp = getCompareIndices();
-  drawPianoRoll('canvasA', seqA, C.noteA, C.noteADim, hl.a, cmp.a >= 0 ? cmp.a : undefined);
-  drawPianoRoll('canvasB', seqB, C.noteB, C.noteBDim, hl.b, cmp.b >= 0 ? cmp.b : undefined);
+  // When a cell is selected, highlight its i/j positions in the piano rolls
+  const cmpA = selectedCell !== null ? selectedCell.i : (cmp.a >= 0 ? cmp.a : undefined);
+  const cmpB = selectedCell !== null ? selectedCell.j : (cmp.b >= 0 ? cmp.b : undefined);
+  drawPianoRoll('canvasA', seqA, C.noteA, C.noteADim, hl.a, cmpA);
+  drawPianoRoll('canvasB', seqB, C.noteB, C.noteBDim, hl.b, cmpB);
   drawMatrix();
   updateStatus();
+  updateEquationPanel();
 }
 
 function updateStatus() {
@@ -783,6 +1139,7 @@ function totalSteps() {
 }
 
 function stepForward() {
+  if (!validateWeights()) return;
   if (animStep >= totalSteps() - 1) {
     phase = 'done';
     render();
@@ -815,6 +1172,7 @@ function getSpeed() {
 }
 
 function playAnim() {
+  if (!validateWeights()) return;
   if (phase === 'done') {
     resetAnim();
   }
@@ -856,11 +1214,14 @@ function resetAnim() {
   pauseAnim();
   animStep = -1;
   phase = 'idle';
+  selectedCell = null;
+  lastEquationKey = null;
   computeDTW();
   render();
 }
 
 function skipToEnd() {
+  if (!validateWeights()) return;
   pauseAnim();
   computeDTW();
   animStep = totalSteps() - 1;
@@ -904,6 +1265,173 @@ document.getElementById('btnSkip').addEventListener('click', skipToEnd);
 document.getElementById('speedSlider').addEventListener('input', e => {
   document.getElementById('speedLabel').textContent = e.target.value + '×';
 });
+
+document.getElementById('costFnSelect').addEventListener('change', () => {
+  resetAnim();
+});
+
+document.getElementById('perfPreset').addEventListener('change', applyPerfPreset);
+document.getElementById('tInput').addEventListener('change', setT);
+document.getElementById('tInput').addEventListener('input', () => {
+  const T = parseInt(document.getElementById('tInput').value);
+  if (!isNaN(T) && T >= 1 && T <= 15) setT();
+});
+
+function validateWeights() {
+  const ids = ['wDiag', 'wVert', 'wHoriz'];
+  let valid = true;
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    const val = parseFloat(el.value);
+    if (el.value.trim() === '' || isNaN(val)) {
+      el.classList.add('invalid');
+      valid = false;
+    } else {
+      el.classList.remove('invalid');
+    }
+  });
+  const warning = document.getElementById('weightsWarning');
+  warning.classList.toggle('visible', !valid);
+  return valid;
+}
+
+['wDiag', 'wVert', 'wHoriz'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    if (validateWeights()) resetAnim();
+  });
+});
+
+// ── Matrix cell click → show equation ─────────────────────────────────────
+document.getElementById('matrixCanvas').addEventListener('click', e => {
+  const canvas = document.getElementById('matrixCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const labelSpace = 32, oy = 8;
+  const n = seqA.length, m = seqB.length;
+  const j = Math.floor((x - labelSpace) / CELL);
+  const i = n - 1 - Math.floor((y - oy) / CELL);
+  if (i >= 0 && i < n && j >= 0 && j < m) {
+    if (dpMatrix[i] && dpMatrix[i][j] !== Infinity) {
+      if (selectedCell && selectedCell.i === i && selectedCell.j === j) {
+        selectedCell = null;
+      } else {
+        selectedCell = { i, j };
+      }
+      render();
+    }
+  }
+});
+
+document.getElementById('closeEquation').addEventListener('click', () => {
+  selectedCell = null;
+  render();
+});
+
+// ── Build LaTeX string for selected cell ──────────────────────────────────
+function fmtNum(v) {
+  const r = Math.round(v * 1000) / 1000;
+  return Number.isInteger(r) ? String(r) : String(r);
+}
+
+function buildEquationLatex(i, j) {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  // Use rgb() to avoid TeX treating '#' as a macro parameter character
+  const cDiag  = light ? 'rgb(224,144,10)'  : 'rgb(255,190,118)';
+  const cVert  = light ? 'rgb(74,138,42)'   : 'rgb(106,176,76)';
+  const cHoriz = light ? 'rgb(41,120,212)'  : 'rgb(116,185,255)';
+
+  const noteI = `\\mathrm{${NOTE_NAMES[seqA[i]]}}`;
+  const noteJ = `\\mathrm{${NOTE_NAMES[seqB[j]]}}`;
+  const distVal = fmtNum(costMatrix[i][j]);
+
+  const wD = parseFloat(document.getElementById('wDiag').value)  || 1;
+  const wV = parseFloat(document.getElementById('wVert').value)  || 1;
+  const wH = parseFloat(document.getElementById('wHoriz').value) || 1;
+
+  const wDLabel = `\\alpha_{i{-}1,j{-}1} \\cdot `;
+  const wVLabel = `\\alpha_{i{-}1,j} \\cdot `;
+  const wHLabel = `\\alpha_{i,j{-}1} \\cdot `;
+
+  // Corner case
+  if (i === 0 && j === 0) {
+    return `\\[\\begin{aligned}
+      D[0,\\,0] &= \\mathrm{dist}(${noteI},\\,${noteJ}) \\\\[4pt]
+               &= ${distVal}
+    \\end{aligned}\\]`;
+  }
+
+  // First row (only horizontal predecessor)
+  if (i === 0) {
+    return `\\[\\begin{aligned}
+      D[0,\\,${j}] &= \\mathrm{dist}(${noteI},\\,${noteJ}) + \\style{color: ${cHoriz}}{${wHLabel}D[0,\\,${j-1}]} \\\\[4pt]
+                  &= ${distVal} + \\style{color: ${cHoriz}}{${fmtNum(wH * dpMatrix[0][j-1])}}
+    \\end{aligned}\\]`;
+  }
+
+  // First column (only vertical predecessor)
+  if (j === 0) {
+    return `\\[\\begin{aligned}
+      D[${i},\\,0] &= \\mathrm{dist}(${noteI},\\,${noteJ}) + \\style{color: ${cVert}}{${wVLabel}D[${i-1},\\,0]} \\\\[4pt]
+                  &= ${distVal} + \\style{color: ${cVert}}{${fmtNum(wV * dpMatrix[i-1][0])}}
+    \\end{aligned}\\]`;
+  }
+
+  // General case
+  const vd = dpMatrix[i-1][j-1], vv = dpMatrix[i-1][j], vh = dpMatrix[i][j-1];
+  const wd = wD * vd, wv = wV * vv, wh = wH * vh;
+  const minVal = Math.min(wd, wv, wh);
+
+  function hilite(w, v) {
+    const weighted = w * v;
+    const expr = `${fmtNum(w)} \\cdot ${fmtNum(v)}`;
+    return weighted === minVal ? `\\underline{\\boldsymbol{${expr}}}` : expr;
+  }
+
+  return `\\[\\begin{aligned}
+    D[${i},\\,${j}] &= \\mathrm{dist}(${noteI},\\,${noteJ})
+      + \\min\\!\\begin{bmatrix}
+          \\style{color: ${cDiag}}{${wDLabel}D[${i-1},\\,${j-1}]} \\\\
+          \\style{color: ${cVert}}{${wVLabel}D[${i-1},\\,${j}]} \\\\
+          \\style{color: ${cHoriz}}{${wHLabel}D[${i},\\,${j-1}]}
+        \\end{bmatrix} \\\\[10pt]
+    &= ${distVal}
+      + \\min\\!\\begin{bmatrix}
+          \\style{color: ${cDiag}}{${hilite(wD, vd)}} \\\\
+          \\style{color: ${cVert}}{${hilite(wV, vv)}} \\\\
+          \\style{color: ${cHoriz}}{${hilite(wH, vh)}}
+        \\end{bmatrix}
+  \\end{aligned}\\]`;
+}
+
+// ── Render the equation panel ─────────────────────────────────────────────
+function updateEquationPanel() {
+  const panel = document.getElementById('equationPanel');
+  if (!selectedCell || !dpMatrix.length ||
+      dpMatrix[selectedCell.i][selectedCell.j] === Infinity) {
+    panel.style.display = 'none';
+    lastEquationKey = null;
+    return;
+  }
+  panel.style.display = 'block';
+
+  const {i, j} = selectedCell;
+  const key = [i, j, dpMatrix[i][j],
+    document.getElementById('wDiag').value,
+    document.getElementById('wVert').value,
+    document.getElementById('wHoriz').value,
+    document.getElementById('costFnSelect').value,
+    document.documentElement.getAttribute('data-theme'),
+  ].join(',');
+  if (key === lastEquationKey) return;
+  lastEquationKey = key;
+
+  const content = document.getElementById('equationContent');
+  content.innerHTML = buildEquationLatex(i, j);
+  if (window.MathJax && window.MathJax.typesetPromise) {
+    MathJax.typesetPromise([content]).catch(console.error);
+  }
+}
 
 document.addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); if (playing) pauseAnim(); else playAnim(); }

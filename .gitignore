@@ -211,3 +211,5 @@ __marimo__/
 /*.wav
 /warping_path.csv
 /sonic_visualiser_*.csv
+.DS_Store
+

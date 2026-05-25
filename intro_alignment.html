@@ -155,9 +155,11 @@
 
   .card-dtw  { --card-color: var(--note-a); --card-glow: rgba(255,107,138,0.2); }
   .card-sync { --card-color: var(--note-b); --card-glow: rgba(78,205,196,0.2); }
+  .card-hmm  { --card-color: var(--note-c); --card-glow: rgba(255,217,61,0.2); }
 
   .card-dtw  .card-tag { background: rgba(255,107,138,0.15); color: var(--note-a); }
   .card-sync .card-tag { background: rgba(78,205,196,0.15);  color: var(--note-b); }
+  .card-hmm  .card-tag { background: rgba(255,217,61,0.15);  color: var(--note-c); }
 
   .theme-toggle {
     position: fixed;
@@ -197,20 +199,29 @@
   <div class="section-label">Interactive Demos</div>
   <div class="demos-grid">
 
-    <a href="dtw_demo.html" class="demo-card card-dtw">
-      <span class="card-tag">Algorithm</span>
-      <div class="card-title">Dynamic Time Warping</div>
+    <a href="sync_demo.html" class="demo-card card-sync">
+      <span class="card-tag">Audio</span>
+      <div class="card-title">Performance Comparison</div>
       <div class="card-desc">
-        Step through the DTW cost matrix construction and traceback. Edit the input sequences on the piano roll and watch the optimal warping path update in real time.
+        This demo shows a comparison of different performances of the same piece.
       </div>
       <div class="card-arrow">Open demo →</div>
     </a>
 
-    <a href="sync_demo.html" class="demo-card card-sync">
-      <span class="card-tag">Audio</span>
-      <div class="card-title">Audio Sync</div>
+    <a href="dtw_demo.html" class="demo-card card-dtw">
+      <span class="card-tag">Algorithm</span>
+      <div class="card-title">Dynamic Time Warping</div>
       <div class="card-desc">
-        Compare waveforms and local tempo curves across multiple recordings of the same piece. Click between tracks to jump to the beat-aligned position.
+        This interactive demo illustrates the use of DTW for offline music alignment.
+      </div>
+      <div class="card-arrow">Open demo →</div>
+    </a>
+
+    <a href="hmm_demo.html" class="demo-card card-hmm">
+      <span class="card-tag">Algorithm</span>
+      <div class="card-title">Hidden Markov Model</div>
+      <div class="card-desc">
+        This interactive demo illustrates how to use HMMs for online music alignment.
       </div>
       <div class="card-arrow">Open demo →</div>
     </a>
