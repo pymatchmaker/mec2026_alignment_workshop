@@ -2,6 +2,12 @@
 
 This is the companion website for the workshop titled "Music Alignment Uncovered: Representations, Algorithms and Hands-On Tools" held at the Music Encoding Conference 2026 by Carlos Cancino-Chacón, Jiyun Park, Silvan Peter , Yigitcan Özer, Suhit Chiruthapudi.
 
+## Workshop materials
+
+| Session | Notebook |
+| --- | --- |
+| Online alignment (Audio) | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pymatchmaker/mec2026_alignment_workshop/blob/online-alignment/notebooks/online_alignment_audio.ipynb) |
+
 ## Abstract
 
 Music lives in the interplay of different representations: from printed sheet music to machine-readable symbolic representations like MEI or MusicXML to audio and video recordings. For each of these representations, there could exist multiple versions that correspond to the same musical material (e.g., different performances of the same piece, different editions of the same work). Automatic music alignment is a task in the context of Music Computing and Music Information Research (MIR) that focuses on automatically linking elements from one representation to another. Automatic music alignment is a fundamental component of different applications, from comparative analysis of music performances to interactive applications such as automatic accompaniment systems and visualizations.
@@ -32,5 +38,4 @@ Data contained in this repository (e.g., audio, MIDI, etc.), unless indicated ot
 ## Acknowledgements
 
 This work was supported by the Austrian Science Fund (FWF) under grants PAT 8820923 (“Rach3”) and PIN1347924 (“AURA”), the National Research Foundation of Korea (NRF) funded by the Korean government (MSIT) under Grant RS-2023-NR077289, the European Research Council (ERC) under the EU’s Horizon 2020 programme (Grant No. 101019375, “Whither Music?”), and Japan Society for the Promotion of Science (JSPS) MEXT KAKENHI Grant No. 26K21414.
-
 
