@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script>
+  (function(){
+    const t = localStorage.getItem('theme') ||
+      (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Performance Comparison — Music Alignment</title>
+<script src="waveform_peaks.js"></script>
+<script src="alignment_data.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e2e4ea;
+    --text-muted: #8b8fa3;
+    --accent: #6c63ff;
+    --accent-glow: rgba(108,99,255,0.3);
+    --font: 'SF Mono','Cascadia Code','Fira Code','Consolas',monospace;
+    --row-h: 72px;
+    --label-w: 140px;
+  }
+
+  html[data-theme="light"] {
+    --bg: #f4f5f9;
+    --surface: #ffffff;
+    --border: #dde0ea;
+    --text: #1a1d2e;
+    --text-muted: #6b6f85;
+    --accent: #5b52e8;
+    --accent-glow: rgba(91,82,232,0.2);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+  }
+
+  /* ── Header ─────────────────────────────────────────────────────────────── */
+  header {
+    text-align: center;
+    padding: 28px 20px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    color: var(--accent);
+  }
+
+  header p {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: 6px;
+  }
+
+  /* ── Theme toggle ───────────────────────────────────────────────────────── */
+  .theme-toggle {
+    position: fixed;
+    top: 14px; right: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-family: var(--font);
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    z-index: 200;
+  }
+  .theme-toggle:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* ── Player bar ─────────────────────────────────────────────────────────── */
+  .player-bar {
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    z-index: 100;
+  }
+
+  .player-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .player-inner button {
+    background: var(--border);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 18px;
+    font-family: var(--font);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .player-inner button:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .player-inner button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .player-inner button.primary:hover { box-shadow: 0 0 16px var(--accent-glow); }
+  .player-inner button:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+
+  .player-sep { width: 1px; height: 20px; background: var(--border); }
+
+  .time-display {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    min-width: 130px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.3px;
+  }
+
+  .now-playing { display: flex; flex-direction: column; gap: 1px; }
+  .now-playing-label { font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+  .now-playing-name  { font-size: 0.8rem; color: var(--text); font-weight: 500; }
+
+  .kbd-hint { font-size: 0.62rem; color: var(--text-muted); margin-left: auto; letter-spacing: 0.3px; }
+  .kbd-hint kbd {
+    background: var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: var(--font);
+    font-size: 0.62rem;
+  }
+
+  /* ── Tracks wrap ────────────────────────────────────────────────────────── */
+  .tracks-wrap {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px 20px 40px;
+  }
+
+  /* ── Time / beat axis ───────────────────────────────────────────────────── */
+  .axis-row {
+    display: flex;
+    align-items: stretch;
+    margin-top: 4px;
+  }
+  .axis-spacer {
+    width: var(--label-w);
+    min-width: var(--label-w);
+  }
+  .axis-canvas-wrap { flex: 1; height: 22px; position: relative; }
+  #timeAxisCanvas, #beatAxisCanvas { position: absolute; inset: 0; display: block; }
+
+  /* ── Tempo plot ──────────────────────────────────────────────────────────── */
+  .tempo-section { margin-top: 28px; }
+
+  .tempo-title {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    padding-left: var(--label-w);
+  }
+
+  .tempo-wrap {
+    position: relative;
+    height: 160px;
+    cursor: crosshair;
+    user-select: none;
+  }
+
+  #tempoCanvas { position: absolute; inset: 0; display: block; }
+
+  .tempo-cursor {
+    position: absolute;
+    top: 0; bottom: 0; width: 2px;
+    pointer-events: none;
+    display: none;
+    transform: translateX(-50%);
+    z-index: 2;
+    will-change: left;
+  }
+  html:not([data-theme="light"]) .tempo-cursor { background: rgba(255,255,255,0.8); box-shadow: 0 0 6px rgba(255,255,255,0.3); }
+  html[data-theme="light"]       .tempo-cursor { background: rgba(0,0,0,0.6);       box-shadow: 0 0 4px rgba(0,0,0,0.15); }
+
+  .tempo-hover {
+    position: absolute;
+    top: 0; bottom: 0; width: 2px;
+    pointer-events: none;
+    display: none;
+    transform: translateX(-50%);
+    opacity: 0.65;
+    z-index: 3;
+  }
+
+  /* ── Track row ──────────────────────────────────────────────────────────── */
+  .track-row {
+    display: flex;
+    align-items: stretch;
+    margin-bottom: 5px;
+    border-radius: 10px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    overflow: hidden;
+    user-select: none;
+  }
+  .track-row:hover:not(.selected) { border-color: var(--text-muted); }
+  .track-row.selected {
+    border-color: var(--tc, var(--accent));
+    box-shadow: inset 0 0 0 1px var(--tc, var(--accent));
+  }
+
+  /* ── Track label ────────────────────────────────────────────────────────── */
+  .track-label {
+    width: var(--label-w);
+    min-width: var(--label-w);
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-right: 1px solid var(--border);
+    transition: border-color 0.15s;
+  }
+
+  .track-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  .track-label-text { flex: 1; min-width: 0; }
+  .track-name { font-size: 0.73rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track-dur  { font-size: 0.62rem; color: var(--text-muted); margin-top: 2px; }
+
+  .track-pulse {
+    width: 7px; height: 7px; border-radius: 50%;
+    flex-shrink: 0; display: none;
+  }
+  .track-row.is-playing .track-pulse { display: block; animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.4; transform: scale(0.65); }
+  }
+
+  /* ── Waveform container ─────────────────────────────────────────────────── */
+  .wf-wrap {
+    flex: 1;
+    position: relative;
+    height: var(--row-h);
+    overflow: hidden;
+    cursor: crosshair;
+  }
+
+  /* progress fill (played region tint) */
+  .wf-progress {
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    width: 0;
+    pointer-events: none;
+    opacity: 0.13;
+    z-index: 0;
+    will-change: width;
+  }
+
+  /* waveform canvas */
+  .wf-canvas { position: absolute; inset: 0; display: block; z-index: 1; }
+
+  /* playback cursor */
+  .wf-cursor {
+    position: absolute;
+    top: 0; bottom: 0; width: 2px;
+    pointer-events: none;
+    display: none;
+    transform: translateX(-50%);
+    z-index: 3;
+    will-change: left;
+  }
+  html:not([data-theme="light"]) .wf-cursor { background: rgba(255,255,255,0.9); box-shadow: 0 0 8px rgba(255,255,255,0.4); }
+  html[data-theme="light"]       .wf-cursor { background: rgba(0,0,0,0.75);      box-shadow: 0 0 6px  rgba(0,0,0,0.2); }
+
+  /* hover ghost cursor */
+  .wf-hover {
+    position: absolute;
+    top: 0; bottom: 0; width: 1px;
+    background: var(--text-muted);
+    pointer-events: none;
+    display: none;
+    transform: translateX(-50%);
+    opacity: 0.4;
+    z-index: 2;
+  }
+
+  /* loading overlay */
+  .wf-loading {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 4;
+  }
+  .wf-loading span { font-size: 0.62rem; color: var(--text-muted); letter-spacing: 2px; }
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="themeToggle"></button>
+
+<header>
+  <a href="index.html" style="display:inline-block;margin-bottom:10px;font-size:0.75rem;color:var(--text-muted);text-decoration:none;letter-spacing:0.5px;">← Music Alignment</a>
+  <h1>Performance Comparison</h1>
+  <p>Waveform viewer — select a track, then press Play</p>
+</header>
+
+<div class="player-bar">
+  <div class="player-inner">
+    <button id="btnPlay" class="primary" disabled>&#9654; Play</button>
+    <button id="btnStop" disabled>&#9632; Stop</button>
+    <div class="player-sep"></div>
+    <div class="time-display" id="timeDisplay">— / —</div>
+    <div class="player-sep"></div>
+    <div class="now-playing">
+      <span class="now-playing-label">Selected</span>
+      <span class="now-playing-name" id="nowPlayingName">Loading…</span>
+    </div>
+    <div class="kbd-hint">
+      <kbd>Space</kbd> play/pause &nbsp;
+      <kbd>↑</kbd><kbd>↓</kbd> select track &nbsp;
+      <kbd>←</kbd><kbd>→</kbd> seek 5 s
+    </div>
+  </div>
+</div>
+
+<div class="tracks-wrap">
+  <div class="tempo-section">
+    <div class="tempo-title">Local Tempo</div>
+    <div class="tempo-wrap" id="tempoWrap">
+      <canvas id="tempoCanvas"></canvas>
+      <div id="tempoCursor" class="tempo-cursor"></div>
+      <div id="tempoHover"  class="tempo-hover"></div>
+    </div>
+    <div class="axis-row">
+      <div class="axis-spacer"></div>
+      <div class="axis-canvas-wrap"><canvas id="beatAxisCanvas"></canvas></div>
+    </div>
+  </div>
+  <div id="tracksContainer"></div>
+  <div class="axis-row">
+    <div class="axis-spacer"></div>
+    <div class="axis-canvas-wrap"><canvas id="timeAxisCanvas"></canvas></div>
+  </div>
+</div>
+
+<script>
+// ── Config ───────────────────────────────────────────────────────────────────
+const SRCS = [
+  'media/mp3/short1.mp3',
+  'media/mp3/short2.mp3',
+  'media/mp3/short_fast1.mp3',
+  'media/mp3/short_fast2.mp3',
+  'media/mp3/short_slow1.mp3',
+];
+
+const TC = {
+  dark:  ['#ff6b8a','#4ecdc4','#a78bfa','#ffd93d','#ff9f43'],
+  light: ['#e0405f','#1a9e96','#6c63ff','#b07d00','#d4762a'],
+};
+
+// ── State ────────────────────────────────────────────────────────────────────
+let tracks     = [];
+let maxDur     = 0;
+let selIdx     = 0;
+let isPlaying  = false;
+let rafId      = null;
+
+// ── Tempo state ───────────────────────────────────────────────────────────────
+const LABEL_W     = 140;   // matches CSS --label-w
+let tempoLines    = null;  // [{idx, name, points:[{beat,bpm}]}]
+let maxBeat       = 0;
+let bpmRange      = {min: 0, max: 200};
+let tempoHoverIdx = -1;
+let prevTempoHL   = -2;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function isLight() {
+  return document.documentElement.getAttribute('data-theme') === 'light';
+}
+
+function C() {
+  const l = isLight();
+  return {
+    surface: l ? '#ffffff' : '#1a1d27',
+    border:  l ? '#dde0ea' : '#2a2d3a',
+    text:    l ? '#1a1d2e' : '#e2e4ea',
+    muted:   l ? '#6b6f85' : '#8b8fa3',
+  };
+}
+
+function trackColor(idx) {
+  return TC[isLight() ? 'light' : 'dark'][idx % 5];
+}
+
+function fmt(s) {
+  if (!isFinite(s) || s < 0) return '—';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  const t = Math.floor((s % 1) * 10);
+  return `${m}:${String(sec).padStart(2,'0')}.${t}`;
+}
+
+// ── Build DOM ─────────────────────────────────────────────────────────────────
+function buildRows() {
+  const container = document.getElementById('tracksContainer');
+
+  SRCS.forEach((src, idx) => {
+    const name = src.split('/').pop().replace('.mp3','');
+    const color = trackColor(idx);
+    const track = {
+      src, name, idx,
+      duration: null, peaks: null, loaded: false,
+      audioEl: new Audio(src),
+      rowEl: null, canvasEl: null, cursorEl: null,
+      hoverEl: null, progressEl: null, loadingEl: null,
+    };
+    tracks.push(track);
+
+    const row = document.createElement('div');
+    row.className = 'track-row';
+    row.style.setProperty('--tc', color);
+    row.innerHTML = `
+      <div class="track-label">
+        <div class="track-dot"  style="background:${color}"></div>
+        <div class="track-label-text">
+          <div class="track-name">${name}</div>
+          <div class="track-dur"  id="dur-${idx}">Loading…</div>
+        </div>
+        <div class="track-pulse" style="background:${color}"></div>
+      </div>
+      <div class="wf-wrap" id="wf-${idx}">
+        <div  class="wf-progress" id="prog-${idx}" style="background:${color}"></div>
+        <canvas class="wf-canvas"  id="cv-${idx}"></canvas>
+        <div  class="wf-cursor"   id="cur-${idx}"></div>
+        <div  class="wf-hover"    id="hov-${idx}"></div>
+        <div  class="wf-loading"  id="load-${idx}"><span>LOADING</span></div>
+      </div>`;
+
+    track.rowEl      = row;
+    track.canvasEl   = null; // assigned after append
+    track.cursorEl   = null;
+    track.hoverEl    = null;
+    track.progressEl = null;
+    track.loadingEl  = null;
+
+    container.appendChild(row);
+
+    track.canvasEl   = document.getElementById(`cv-${idx}`);
+    track.cursorEl   = document.getElementById(`cur-${idx}`);
+    track.hoverEl    = document.getElementById(`hov-${idx}`);
+    track.progressEl = document.getElementById(`prog-${idx}`);
+    track.loadingEl  = document.getElementById(`load-${idx}`);
+
+    // ── Interactions ─────────────────────────────────────────────────────────
+
+    // click row → select
+    row.addEventListener('click', () => selectTrack(idx));
+
+    // click waveform → seek (and select)
+    const wfEl = document.getElementById(`wf-${idx}`);
+    wfEl.addEventListener('click', e => {
+      e.stopPropagation();
+      selectTrack(idx);
+      if (!track.loaded || !maxDur) return;
+      const r = wfEl.getBoundingClientRect();
+      const t = ((e.clientX - r.left) / r.width) * maxDur;
+      seekTo(idx, t);
+    });
+
+    // hover cursor
+    wfEl.addEventListener('mousemove', e => {
+      const r = wfEl.getBoundingClientRect();
+      track.hoverEl.style.left  = (e.clientX - r.left) + 'px';
+      track.hoverEl.style.display = 'block';
+    });
+    wfEl.addEventListener('mouseleave', () => {
+      track.hoverEl.style.display = 'none';
+    });
+
+    // ended
+    track.audioEl.addEventListener('ended', () => {
+      isPlaying = false;
+      stopAnim();
+      row.classList.remove('is-playing');
+      setPlayBtn(false);
+    });
+  });
+}
+
+// ── Alignment interpolation ───────────────────────────────────────────────────
+function alignTime(t, fromIdx, toIdx) {
+  if (fromIdx === toIdx) return t;
+
+  const fromTrack = tracks[fromIdx];
+  const toTrack   = tracks[toIdx];
+  if (!fromTrack?.loaded || !toTrack?.loaded) return t;
+
+  const fromBeats = window.BEAT_DATA?.[fromTrack.name];
+  const toBeats   = window.BEAT_DATA?.[toTrack.name];
+
+  // Build anchor list: [{a: timeInFrom, b: timeInTo}], sorted by a
+  const anchors = [{a: 0, b: 0}];
+
+  if (fromBeats && toBeats) {
+    const toMap = {};
+    toBeats.forEach(b => { toMap[b.label] = b.time; });
+    fromBeats.forEach(b => {
+      if (b.label in toMap) anchors.push({a: b.time, b: toMap[b.label]});
+    });
+  }
+
+  anchors.push({a: fromTrack.duration, b: toTrack.duration});
+  anchors.sort((x, y) => x.a - y.a);
+
+  if (t <= 0) return 0;
+  if (t >= fromTrack.duration) return toTrack.duration;
+
+  // Find enclosing interval via binary search
+  let lo = 0, hi = anchors.length - 1;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (anchors[mid].a <= t) lo = mid; else hi = mid;
+  }
+
+  const {a: a0, b: b0} = anchors[lo];
+  const {a: a1, b: b1} = anchors[hi];
+  if (a1 === a0) return b0;
+
+  const f = (t - a0) / (a1 - a0);
+  return Math.max(0, Math.min(toTrack.duration, b0 + f * (b1 - b0)));
+}
+
+// ── Selection ─────────────────────────────────────────────────────────────────
+function selectTrack(idx) {
+  if (idx === selIdx) return;
+
+  if (isPlaying) {
+    // Jump to the aligned position in the new track and keep playing
+    const targetTime = alignTime(tracks[selIdx].audioEl.currentTime, selIdx, idx);
+
+    tracks[selIdx].audioEl.pause();
+    tracks[selIdx].rowEl.classList.remove('is-playing');
+
+    selIdx = idx;
+    tracks.forEach((t, i) => t.rowEl.classList.toggle('selected', i === idx));
+    document.getElementById('nowPlayingName').textContent = tracks[idx].name;
+
+    tracks[idx].audioEl.currentTime = targetTime;
+    tracks[idx].audioEl.play().catch(err => {
+      console.error('Playback failed:', err);
+      isPlaying = false;
+      tracks[idx].rowEl.classList.remove('is-playing');
+      setPlayBtn(false);
+      stopAnim();
+    });
+    tracks[idx].rowEl.classList.add('is-playing');
+    refreshCursor(tracks[idx]);
+    updateTimeDisplay(tracks[idx]);
+    return;
+  }
+
+  tracks.forEach((t, i) => t.rowEl.classList.toggle('selected', i === idx));
+  selIdx = idx;
+
+  const t = tracks[idx];
+  document.getElementById('nowPlayingName').textContent = t.name;
+  if (t.loaded) {
+    refreshCursor(t);
+    updateTimeDisplay(t);
+  }
+}
+
+// ── Seek ──────────────────────────────────────────────────────────────────────
+function seekTo(idx, time) {
+  const t = tracks[idx];
+  if (!t.loaded) return;
+  t.audioEl.currentTime = Math.max(0, Math.min(time, t.duration));
+  refreshCursor(t);
+  updateTimeDisplay(t);
+}
+
+// ── Playback ──────────────────────────────────────────────────────────────────
+function play() {
+  const t = tracks[selIdx];
+  if (!t?.loaded) return;
+
+  // Stop all others
+  tracks.forEach((tr, i) => {
+    if (i !== selIdx) {
+      tr.audioEl.pause();
+      tr.rowEl.classList.remove('is-playing');
+    }
+  });
+
+  t.audioEl.play().catch(err => {
+    console.error('Playback failed:', err);
+    isPlaying = false;
+    t.rowEl.classList.remove('is-playing');
+    setPlayBtn(false);
+    stopAnim();
+  });
+  isPlaying = true;
+  t.rowEl.classList.add('is-playing');
+  setPlayBtn(true);
+  startAnim();
+}
+
+function pause() {
+  const t = tracks[selIdx];
+  if (!t) return;
+  t.audioEl.pause();
+  isPlaying = false;
+  t.rowEl.classList.remove('is-playing');
+  stopAnim();
+  setPlayBtn(false);
+}
+
+function stop() {
+  tracks.forEach(t => {
+    t.audioEl.pause();
+    t.audioEl.currentTime = 0;
+    t.cursorEl.style.display = 'none';
+    t.progressEl.style.width = '0';
+    t.rowEl.classList.remove('is-playing');
+  });
+  isPlaying = false;
+  stopAnim();
+  setPlayBtn(false);
+  updateTimeDisplay(tracks[selIdx]);
+  const tc = document.getElementById('tempoCursor');
+  if (tc) tc.style.display = 'none';
+}
+
+function setPlayBtn(playing) {
+  const btn = document.getElementById('btnPlay');
+  if (playing) {
+    btn.innerHTML = '&#9646;&#9646; Pause';
+    btn.classList.remove('primary');
+  } else {
+    btn.innerHTML = '&#9654; Play';
+    btn.classList.add('primary');
+  }
+}
+
+// ── Animation loop ────────────────────────────────────────────────────────────
+function startAnim() {
+  stopAnim();
+  function loop() {
+    const t = tracks[selIdx];
+    if (t?.loaded) {
+      refreshCursor(t);
+      updateTimeDisplay(t);
+      refreshTempoCursor();
+    }
+    rafId = requestAnimationFrame(loop);
+  }
+  rafId = requestAnimationFrame(loop);
+}
+
+function stopAnim() {
+  if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+}
+
+function refreshCursor(track) {
+  if (!maxDur) return;
+  const wfEl = document.getElementById(`wf-${track.idx}`);
+  const w    = wfEl.clientWidth;
+  const ct   = track.audioEl.currentTime;
+  const x    = (ct / maxDur) * w;
+
+  track.cursorEl.style.left    = x + 'px';
+  track.cursorEl.style.display = (ct > 0 || isPlaying) ? 'block' : 'none';
+  track.progressEl.style.width = (ct > 0 || isPlaying) ? x + 'px' : '0';
+}
+
+function updateTimeDisplay(track) {
+  if (!track) return;
+  document.getElementById('timeDisplay').textContent =
+    `${fmt(track.audioEl.currentTime)} / ${fmt(track.duration)}`;
+}
+
+// ── Waveform drawing ──────────────────────────────────────────────────────────
+function computePeaks(audioBuf) {
+  const BINS_PER_SEC = 200;
+  const numBins   = Math.ceil(audioBuf.duration * BINS_PER_SEC);
+  const total     = audioBuf.length;
+  const numCh     = audioBuf.numberOfChannels;
+  const ch        = [];
+  for (let c = 0; c < numCh; c++) ch.push(audioBuf.getChannelData(c));
+
+  const peaks = new Float32Array(numBins);
+  for (let b = 0; b < numBins; b++) {
+    const s0 = Math.floor( b      / numBins * total);
+    const s1 = Math.min(Math.floor((b + 1) / numBins * total), total);
+    let max = 0;
+    for (let s = s0; s < s1; s++) {
+      let amp = 0;
+      for (let c = 0; c < numCh; c++) amp += Math.abs(ch[c][s]);
+      if (amp / numCh > max) max = amp / numCh;
+    }
+    peaks[b] = max;
+  }
+  return peaks;
+}
+
+function drawWaveform(track) {
+  if (!track.loaded || !track.peaks || !maxDur) return;
+  const canvas = track.canvasEl;
+  const dpr    = window.devicePixelRatio || 1;
+  const w      = canvas.parentElement.clientWidth;
+  const h      = canvas.parentElement.clientHeight;
+  if (w < 1 || h < 1) return;
+
+  canvas.width  = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  canvas.style.width  = w + 'px';
+  canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const col     = trackColor(track.idx);
+  const colors  = C();
+  const midY    = h / 2;
+  const maxBarH = (h - 6) / 2;
+  const activeW = Math.round((track.duration / maxDur) * w);
+
+  // ── Waveform bars ──────────────────────────────────────────────
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  for (let px = 0; px < activeW; px++) {
+    const t   = (px / w) * maxDur;
+    const f   = t / track.duration;
+    const b0  = Math.floor(f * track.peaks.length);
+    const tN  = ((px + 1) / w) * maxDur;
+    const b1  = Math.min(Math.ceil((Math.min(tN, track.duration) / track.duration) * track.peaks.length), track.peaks.length);
+    let amp = 0;
+    for (let b = b0; b < b1; b++) if (track.peaks[b] > amp) amp = track.peaks[b];
+    const bh = Math.max(1, amp * maxBarH);
+    ctx.rect(px, midY - bh, 1, bh * 2);
+  }
+  ctx.fill();
+
+  // ── Empty region beyond track end ──────────────────────────────
+  if (activeW < w) {
+    // vertical end marker
+    ctx.fillStyle = col + '55';
+    ctx.fillRect(activeW, 4, 1, h - 8);
+    // thin centre line
+    ctx.fillStyle = colors.border;
+    ctx.fillRect(activeW + 2, midY - 0.5, w - activeW - 2, 1);
+  }
+}
+
+function drawAll() { tracks.forEach(drawWaveform); }
+
+function drawAxis() {
+  const canvas = document.getElementById('timeAxisCanvas');
+  const wrap   = canvas.parentElement;
+  const dpr    = window.devicePixelRatio || 1;
+  const w      = wrap.clientWidth;
+  const h      = wrap.clientHeight;
+  if (w < 1 || !maxDur) return;
+
+  canvas.width  = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  canvas.style.width  = w + 'px';
+  canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const colors   = C();
+  const interval = maxDur > 30 ? 5 : maxDur > 15 ? 2 : 1;
+
+  ctx.fillStyle = colors.border;
+  ctx.fillRect(0, h - 1, w, 1);
+
+  ctx.font         = '9px SF Mono, Consolas, monospace';
+  ctx.textBaseline = 'alphabetic';
+
+  for (let t = 0; t <= maxDur + 0.01; t += interval) {
+    const x = Math.round((t / maxDur) * w);
+    ctx.fillStyle = colors.border;
+    ctx.fillRect(x, h - 5, 1, 5);
+    ctx.fillStyle   = colors.muted;
+    ctx.textAlign   = t === 0 ? 'left' : (t + interval > maxDur ? 'right' : 'center');
+    ctx.fillText(t === 0 ? '0 s' : `${t} s`, x, h - 8);
+  }
+}
+
+// ── Tempo data ────────────────────────────────────────────────────────────────
+function buildTempoData() {
+  if (!window.BEAT_DATA) return;
+  tempoLines = [];
+  let gMin = Infinity, gMax = 0;
+
+  tracks.forEach(track => {
+    const beats = window.BEAT_DATA[track.name];
+    if (!beats || beats.length < 2) return;
+    const points = [];
+    for (let i = 0; i < beats.length - 1; i++) {
+      const dt = beats[i + 1].time - beats[i].time;
+      if (dt > 0) {
+        const bpm = 60 / dt;
+        points.push({beat: beats[i].label, bpm});
+        if (bpm < gMin) gMin = bpm;
+        if (bpm > gMax) gMax = bpm;
+      }
+    }
+    maxBeat = Math.max(maxBeat, beats[beats.length - 1].label);
+    tempoLines.push({idx: track.idx, name: track.name, points});
+  });
+
+  if (!isFinite(gMin)) return;
+  const margin = Math.max(5, (gMax - gMin) * 0.12);
+  const step   = (gMax - gMin + 2 * margin) <= 60 ? 5 : 10;
+  bpmRange = {
+    min: Math.max(0, Math.floor((gMin - margin) / step) * step),
+    max:             Math.ceil( (gMax + margin) / step) * step,
+  };
+}
+
+function timeToBeat(t, trackIdx) {
+  const beats = window.BEAT_DATA?.[tracks[trackIdx].name];
+  if (!beats || beats.length < 2) return 0;
+  if (t <= beats[0].time) return beats[0].label * (beats[0].time > 0 ? t / beats[0].time : 0);
+  const last = beats[beats.length - 1];
+  if (t >= last.time) return last.label;
+  let lo = 0, hi = beats.length - 1;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (beats[mid].time <= t) lo = mid; else hi = mid;
+  }
+  const {time: t0, label: b0} = beats[lo], {time: t1, label: b1} = beats[hi];
+  return b0 + (t - t0) / (t1 - t0) * (b1 - b0);
+}
+
+function beatToTime(beat, trackIdx) {
+  const beats = window.BEAT_DATA?.[tracks[trackIdx].name];
+  if (!beats || beats.length < 2) return 0;
+  if (beat <= beats[0].label) return beats[0].time * (beats[0].label > 0 ? beat / beats[0].label : 0);
+  const last = beats[beats.length - 1];
+  if (beat >= last.label) return tracks[trackIdx].duration;
+  let lo = 0, hi = beats.length - 1;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (beats[mid].label <= beat) lo = mid; else hi = mid;
+  }
+  const {label: b0, time: t0} = beats[lo], {label: b1, time: t1} = beats[hi];
+  return t0 + (beat - b0) / (b1 - b0) * (t1 - t0);
+}
+
+function bpmAt(beat, points) {
+  if (!points || points.length === 0) return null;
+  if (beat <= points[0].beat) return points[0].bpm;
+  if (beat >= points[points.length - 1].beat) return points[points.length - 1].bpm;
+  let lo = 0, hi = points.length - 1;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].beat <= beat) lo = mid; else hi = mid;
+  }
+  return points[lo].bpm;  // step interpolation (constant tempo per beat interval)
+}
+
+function drawTempoPlot(highlightIdx = -1) {
+  if (!tempoLines) return;
+  const canvas = document.getElementById('tempoCanvas');
+  const wrap   = document.getElementById('tempoWrap');
+  if (!canvas || !wrap) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w   = wrap.clientWidth;
+  const h   = wrap.clientHeight;
+  if (w < 1 || h < 1) return;
+
+  canvas.width  = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  canvas.style.width  = w + 'px';
+  canvas.style.height = h + 'px';
+
+  const ctx    = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const colors = C();
+  const pt  = 8;             // top padding
+  const ph  = h - pt - 4;   // plot height
+  const pw  = w - LABEL_W;  // plot width
+
+  const toX = beat => LABEL_W + (beat / maxBeat) * pw;
+  const toY = bpm  => pt + ph - ((bpm - bpmRange.min) / (bpmRange.max - bpmRange.min)) * ph;
+
+  // ── Grid lines & y-axis labels ─────────────────────────────────────────────
+  const span = bpmRange.max - bpmRange.min;
+  const step = span <= 60 ? 5 : span <= 120 ? 10 : 20;
+  ctx.font         = '9px SF Mono, Consolas, monospace';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign    = 'right';
+
+  for (let bpm = bpmRange.min; bpm <= bpmRange.max + 0.01; bpm += step) {
+    const y = toY(bpm);
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth   = 0.5;
+    ctx.beginPath(); ctx.moveTo(LABEL_W, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.fillStyle = colors.muted;
+    ctx.fillText(`${bpm}`, LABEL_W - 6, y);
+  }
+
+  // "bpm" rotated unit label
+  ctx.save();
+  ctx.translate(10, h / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle    = colors.muted;
+  ctx.fillText('Beats per minute', 0, 0);
+  ctx.restore();
+
+  // y-axis line
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(LABEL_W, pt); ctx.lineTo(LABEL_W, pt + ph); ctx.stroke();
+
+  // ── Tempo lines ────────────────────────────────────────────────────────────
+  tempoLines.forEach(tl => {
+    if (tl.points.length < 2) return;
+    const col  = trackColor(tl.idx);
+    const isHL = tl.idx === highlightIdx;
+    ctx.strokeStyle = col;
+    ctx.lineWidth   = isHL ? 2.5 : 1.5;
+    ctx.globalAlpha = highlightIdx >= 0 ? (isHL ? 1 : 0.25) : 0.85;
+    ctx.lineJoin    = 'round';
+    ctx.beginPath();
+    tl.points.forEach((p, i) => {
+      i === 0 ? ctx.moveTo(toX(p.beat), toY(p.bpm)) : ctx.lineTo(toX(p.beat), toY(p.bpm));
+    });
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawBeatAxis() {
+  const canvas = document.getElementById('beatAxisCanvas');
+  if (!canvas) return;
+  const wrap = canvas.parentElement;
+  const dpr  = window.devicePixelRatio || 1;
+  const w    = wrap.clientWidth;
+  const h    = wrap.clientHeight;
+  if (w < 1 || !maxBeat) return;
+
+  canvas.width  = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  canvas.style.width  = w + 'px';
+  canvas.style.height = h + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const colors   = C();
+  const interval = maxBeat > 32 ? 4 : maxBeat > 16 ? 2 : 1;
+
+  ctx.fillStyle = colors.border;
+  ctx.fillRect(0, 0, w, 1);
+  ctx.font         = '9px SF Mono, Consolas, monospace';
+  ctx.textBaseline = 'hanging';
+
+  for (let b = 0; b <= maxBeat + 0.01; b += interval) {
+    const x = Math.round((b / maxBeat) * w);
+    ctx.fillStyle = colors.border;
+    ctx.fillRect(x, 0, 1, 4);
+    ctx.fillStyle = colors.muted;
+    ctx.textAlign = b === 0 ? 'left' : (b + interval > maxBeat ? 'right' : 'center');
+    ctx.fillText(`${b}`, x, 6);
+  }
+  ctx.textAlign    = 'right';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle    = colors.muted;
+  ctx.fillText('beats', w, h - 1);
+}
+
+function refreshTempoCursor() {
+  if (!tempoLines || !maxBeat) return;
+  const cursor = document.getElementById('tempoCursor');
+  const wrap   = document.getElementById('tempoWrap');
+  if (!cursor || !wrap) return;
+  const ct   = tracks[selIdx]?.audioEl.currentTime ?? 0;
+  const beat = timeToBeat(ct, selIdx);
+  const x    = LABEL_W + (beat / maxBeat) * (wrap.clientWidth - LABEL_W);
+  cursor.style.left    = x + 'px';
+  cursor.style.display = (ct > 0 || isPlaying) ? 'block' : 'none';
+}
+
+// ── Audio loading ─────────────────────────────────────────────────────────────
+async function loadAll() {
+  if (window.WAVEFORM_PEAKS) {
+    // Precomputed peaks available — works on file:// and http://
+    tracks.forEach(track => {
+      const data = window.WAVEFORM_PEAKS[track.name];
+      if (data) {
+        track.duration = data.duration;
+        track.peaks    = data.peaks;
+        track.loaded   = true;
+        document.getElementById(`dur-${track.idx}`).textContent    = fmt(track.duration);
+        document.getElementById(`load-${track.idx}`).style.display = 'none';
+      } else {
+        document.getElementById(`dur-${track.idx}`).textContent = 'missing';
+        document.getElementById(`load-${track.idx}`).innerHTML  =
+          '<span style="font-size:0.6rem;color:#ff6b8a;letter-spacing:1px">MISSING</span>';
+      }
+    });
+  } else {
+    // Fallback: decode via fetch + Web Audio API (requires HTTP)
+    if (location.protocol === 'file:') {
+      tracks.forEach(t => {
+        document.getElementById(`dur-${t.idx}`).textContent = 'needs server';
+        document.getElementById(`load-${t.idx}`).innerHTML =
+          '<span style="font-size:0.6rem;color:#ff9f43;letter-spacing:1px">NEEDS SERVER</span>';
+      });
+      document.getElementById('nowPlayingName').textContent = '—';
+      document.getElementById('timeDisplay').textContent = '—';
+      return;
+    }
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    await Promise.all(tracks.map(async track => {
+      try {
+        const resp     = await fetch(track.src);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const arrBuf   = await resp.arrayBuffer();
+        const audioBuf = await audioCtx.decodeAudioData(arrBuf);
+        track.duration = audioBuf.duration;
+        track.peaks    = computePeaks(audioBuf);
+        track.loaded   = true;
+        document.getElementById(`dur-${track.idx}`).textContent    = fmt(track.duration);
+        document.getElementById(`load-${track.idx}`).style.display = 'none';
+      } catch (e) {
+        console.error('Load failed:', track.src, e);
+        document.getElementById(`dur-${track.idx}`).textContent = 'error';
+        document.getElementById(`load-${track.idx}`).innerHTML  =
+          `<span style="font-size:0.6rem;color:#ff6b8a;letter-spacing:1px">${e.message || 'ERROR'}</span>`;
+      }
+    }));
+
+    try { audioCtx.close(); } catch (_) {}
+  }
+
+  maxDur = Math.max(0, ...tracks.filter(t => t.loaded).map(t => t.duration));
+  drawAll();
+  drawAxis();
+  buildTempoData();
+  drawTempoPlot();
+  drawBeatAxis();
+
+  const anyLoaded = tracks.some(t => t.loaded);
+  document.getElementById('btnPlay').disabled = !anyLoaded;
+  document.getElementById('btnStop').disabled = !anyLoaded;
+
+  selectTrack(0);
+}
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    drawAll();
+    drawAxis();
+    drawTempoPlot(tempoHoverIdx);
+    drawBeatAxis();
+    const t = tracks[selIdx];
+    if (t?.loaded && (isPlaying || t.audioEl.currentTime > 0)) {
+      refreshCursor(t);
+      refreshTempoCursor();
+    }
+  }, 120);
+});
+
+// ── Keyboard ──────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target !== document.body && e.target.tagName !== 'BUTTON') return;
+  if (e.code === 'Space')      { e.preventDefault(); isPlaying ? pause() : play(); }
+  if (e.code === 'ArrowUp')    { e.preventDefault(); selectTrack(Math.max(0, selIdx - 1)); }
+  if (e.code === 'ArrowDown')  { e.preventDefault(); selectTrack(Math.min(tracks.length - 1, selIdx + 1)); }
+  if (e.code === 'ArrowLeft')  { e.preventDefault(); seekTo(selIdx, tracks[selIdx]?.audioEl.currentTime - 5); }
+  if (e.code === 'ArrowRight') { e.preventDefault(); seekTo(selIdx, tracks[selIdx]?.audioEl.currentTime + 5); }
+});
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+document.getElementById('btnPlay').addEventListener('click', () => isPlaying ? pause() : play());
+document.getElementById('btnStop').addEventListener('click', stop);
+
+// ── Theme toggle ──────────────────────────────────────────────────────────────
+function syncThemeBtn() {
+  document.getElementById('themeToggle').textContent = isLight() ? '☾ Dark' : '☀ Light';
+}
+
+document.getElementById('themeToggle').addEventListener('click', () => {
+  const next = isLight() ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+  syncThemeBtn();
+  // Update track dot and progress colours for new theme
+  tracks.forEach((t, i) => {
+    const col = trackColor(i);
+    t.rowEl.style.setProperty('--tc', col);
+    t.rowEl.querySelector('.track-dot').style.background   = col;
+    t.rowEl.querySelector('.track-pulse').style.background = col;
+    t.progressEl.style.background = col;
+  });
+  drawAll();
+  drawAxis();
+  drawTempoPlot(tempoHoverIdx);
+  drawBeatAxis();
+});
+
+// ── Tempo plot interactions ───────────────────────────────────────────────────
+const tempoWrap   = document.getElementById('tempoWrap');
+const tempoHoverEl = document.getElementById('tempoHover');
+
+function jumpToBeat(beat, trackIdx) {
+  const time = beatToTime(beat, trackIdx);
+  if (isPlaying && trackIdx !== selIdx) {
+    tracks[selIdx].audioEl.pause();
+    tracks[selIdx].rowEl.classList.remove('is-playing');
+    selIdx = trackIdx;
+    tracks.forEach((t, i) => t.rowEl.classList.toggle('selected', i === trackIdx));
+    document.getElementById('nowPlayingName').textContent = tracks[trackIdx].name;
+    tracks[trackIdx].audioEl.currentTime = time;
+    tracks[trackIdx].audioEl.play().catch(err => {
+      console.error('Playback failed:', err);
+      isPlaying = false;
+      tracks[trackIdx].rowEl.classList.remove('is-playing');
+      setPlayBtn(false);
+      stopAnim();
+    });
+    tracks[trackIdx].rowEl.classList.add('is-playing');
+    refreshCursor(tracks[trackIdx]);
+    updateTimeDisplay(tracks[trackIdx]);
+  } else {
+    if (trackIdx !== selIdx) selectTrack(trackIdx);
+    seekTo(trackIdx, time);
+    refreshTempoCursor();
+  }
+}
+
+tempoWrap.addEventListener('mousemove', e => {
+  const r  = tempoWrap.getBoundingClientRect();
+  const mx = e.clientX - r.left;
+  const my = e.clientY - r.top;
+
+  if (mx < LABEL_W || !tempoLines || !maxBeat) {
+    tempoHoverEl.style.display = 'none';
+    if (tempoHoverIdx !== -1) { tempoHoverIdx = -1; prevTempoHL = -1; drawTempoPlot(-1); }
+    return;
+  }
+
+  tempoHoverEl.style.left    = mx + 'px';
+  tempoHoverEl.style.display = 'block';
+
+  const pw    = r.width - LABEL_W;
+  const pt    = 8;
+  const ph    = r.height - pt - 4;
+  const beat  = (mx - LABEL_W) / pw * maxBeat;
+
+  // find nearest curve by y-distance
+  let minDist = Infinity, nearestIdx = -1;
+  tempoLines.forEach(tl => {
+    const bpm = bpmAt(beat, tl.points);
+    if (bpm === null) return;
+    const y   = pt + ph - ((bpm - bpmRange.min) / (bpmRange.max - bpmRange.min)) * ph;
+    const d   = Math.abs(my - y);
+    if (d < minDist) { minDist = d; nearestIdx = tl.idx; }
+  });
+
+  tempoHoverEl.style.background = nearestIdx >= 0 ? trackColor(nearestIdx) : 'var(--text-muted)';
+  tempoHoverIdx = nearestIdx;
+
+  if (nearestIdx !== prevTempoHL) {
+    prevTempoHL = nearestIdx;
+    drawTempoPlot(nearestIdx);
+  }
+});
+
+tempoWrap.addEventListener('mouseleave', () => {
+  tempoHoverEl.style.display = 'none';
+  tempoHoverIdx = -1;
+  if (prevTempoHL !== -1) { prevTempoHL = -1; drawTempoPlot(-1); }
+});
+
+tempoWrap.addEventListener('click', e => {
+  if (!tempoLines || !maxBeat) return;
+  const r    = tempoWrap.getBoundingClientRect();
+  const mx   = e.clientX - r.left;
+  if (mx < LABEL_W) return;
+  const beat = Math.max(0, Math.min(maxBeat, (mx - LABEL_W) / (r.width - LABEL_W) * maxBeat));
+  const idx  = tempoHoverIdx >= 0 ? tempoHoverIdx : selIdx;
+  jumpToBeat(beat, idx);
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildRows();
+syncThemeBtn();
+loadAll();
+</script>
+</body>
+</html>

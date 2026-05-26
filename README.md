@@ -14,6 +14,21 @@ Music lives in the interplay of different representations: from printed sheet mu
 
 In this half-day workshop we will provide a practical, hands-on overview of music alignment. The workshop will consist of a comprehensive overview of alignment technologies for both symbolic music and audio, including a practical presentation of tools, datasets and formats for representing alignments. Rather than focusing primarily on the technical aspects of alignment algorithms, we will focus on practical aspects of using alignment for the purpose of music analysis in different contexts, showcasing pipelines, open-source tools and applications.
 
+## Offline Alignment: Audio–Audio Notebook
+
+A hands-on notebook for **offline audio-to-audio alignment** — synchronising two recordings of the same piece with chroma features and MrMsDTW ([Sync Toolbox](https://github.com/meinardmueller/synctoolbox)), with time-scale-modification sonification ([libtsm](https://github.com/groupmm/libtsm)), chroma sonification ([libsoni](https://github.com/groupmm/libsoni)), warping-path CSV export, and Sonic Visualiser layers. It closes with a bonus on cross-instrument alignment (piano reduction ↔ orchestra) using Tchaikovsky's *Nutcracker*.
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pymatchmaker/mec2026_alignment_workshop/blob/offline-alignment/MEC2026_audio_audio_alignment.ipynb)
+
+Run it in **Google Colab** (no setup needed), or locally:
+
+```bash
+pip install -r requirements.txt
+jupyter lab MEC2026_audio_audio_alignment.ipynb
+```
+
+All example audio is bundled in [`data_music/`](./data_music) and is openly licensed / public-domain: the Mozart *"Ah! vous dirai-je, maman"* main example, plus a Tchaikovsky *Nutcracker* (Op. 71a) piano–orchestra pair for the cross-instrument bonus. You can also swap in your own recordings via file upload or YouTube links.
+
 ## LICENSE
 
 Unless indicated otherwise, the code contained in this repository is distributed under the Apache 2.0 license (see [LICENSE](./LICENSE)).
@@ -22,5 +37,5 @@ Data contained in this repository (e.g., audio, MIDI, etc.), unless indicated ot
 
 ## Acknowledgements
 
-This work was supported by the Austrian Science Fund (FWF) under grants PAT 8820923 (“Rach3”) and PIN1347924 (“AURA”), the National Research Foundation of Korea (NRF) funded by the Korean government (MSIT) under Grant RS-2023-NR077289, and the European Research Council (ERC) under the EU’s Horizon 2020 programme (Grant No. 101019375, “Whither Music?”).
+This work was supported by the Austrian Science Fund (FWF) under grants PAT 8820923 (“Rach3”) and PIN1347924 (“AURA”), the National Research Foundation of Korea (NRF) funded by the Korean government (MSIT) under Grant RS-2023-NR077289, the European Research Council (ERC) under the EU’s Horizon 2020 programme (Grant No. 101019375, “Whither Music?”), and Japan Society for the Promotion of Science (JSPS) MEXT KAKENHI Grant No. 26K21414.
 
