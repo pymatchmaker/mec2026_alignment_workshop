@@ -1,6 +1,8 @@
 # Music Alignment Uncovered: Representations, Algorithms and Hands-On Tools
 
-This is the companion website for the workshop titled "Music Alignment Uncovered: Representations, Algorithms and Hands-On Tools" held at the Music Encoding Conference 2026 by Carlos Cancino-Chacón, Jiyun Park, Silvan Peter , Yigitcan Özer, Suhit Chiruthapudi.
+This is the companion repository for the workshop titled "Music Alignment Uncovered: Representations, Algorithms and Hands-On Tools" held at the Music Encoding Conference 2026 by Carlos Cancino-Chacón, Jiyun Park, Silvan Peter, Yigitcan Özer, Suhit Chiruthapudi.
+
+**Workshop website:** <https://pymatchmaker.github.io/mec2026_alignment_workshop/>
 
 ## Workshop materials
 
@@ -16,21 +18,6 @@ This is the companion website for the workshop titled "Music Alignment Uncovered
 Music lives in the interplay of different representations: from printed sheet music to machine-readable symbolic representations like MEI or MusicXML to audio and video recordings. For each of these representations, there could exist multiple versions that correspond to the same musical material (e.g., different performances of the same piece, different editions of the same work). Automatic music alignment is a task in the context of Music Computing and Music Information Research (MIR) that focuses on automatically linking elements from one representation to another. Automatic music alignment is a fundamental component of different applications, from comparative analysis of music performances to interactive applications such as automatic accompaniment systems and visualizations.
 
 In this half-day workshop we will provide a practical, hands-on overview of music alignment. The workshop will consist of a comprehensive overview of alignment technologies for both symbolic music and audio, including a practical presentation of tools, datasets and formats for representing alignments. Rather than focusing primarily on the technical aspects of alignment algorithms, we will focus on practical aspects of using alignment for the purpose of music analysis in different contexts, showcasing pipelines, open-source tools and applications.
-
-## Offline Alignment: Audio–Audio Notebook
-
-A hands-on notebook for **offline audio-to-audio alignment** — synchronising two recordings of the same piece with chroma features and MrMsDTW ([Sync Toolbox](https://github.com/meinardmueller/synctoolbox)), with time-scale-modification sonification ([libtsm](https://github.com/groupmm/libtsm)), chroma sonification ([libsoni](https://github.com/groupmm/libsoni)), warping-path CSV export, and Sonic Visualiser layers. It closes with a bonus on cross-instrument alignment (piano reduction ↔ orchestra) using Tchaikovsky's *Nutcracker*.
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pymatchmaker/mec2026_alignment_workshop/blob/main/offline_alignment/MEC2026_audio_audio_alignment.ipynb)
-
-Run it in **Google Colab** (no setup needed), or locally:
-
-```bash
-pip install -r offline_alignment/requirements.txt
-jupyter lab offline_alignment/MEC2026_audio_audio_alignment.ipynb
-```
-
-All example audio is bundled in [`offline_alignment/data_music/`](./offline_alignment/data_music) and is openly licensed / public-domain: the Mozart *"Ah! vous dirai-je, maman"* main example, plus a Tchaikovsky *Nutcracker* (Op. 71a) piano–orchestra pair for the cross-instrument bonus. You can also swap in your own recordings via file upload or YouTube links.
 
 ## LICENSE
 
