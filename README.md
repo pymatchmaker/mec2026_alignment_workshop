@@ -6,7 +6,10 @@ This is the companion website for the workshop titled "Music Alignment Uncovered
 
 | Session | Notebook |
 | --- | --- |
-| Online alignment (Audio) | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pymatchmaker/mec2026_alignment_workshop/blob/online-alignment/notebooks/online_alignment_audio.ipynb) |
+| Offline alignment (Audio) | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pymatchmaker/mec2026_alignment_workshop/blob/main/offline_alignment/MEC2026_audio_audio_alignment.ipynb) |
+| Offline alignment (Symbolic) | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1VXFXAMNoNLjoTluN_tlIoz-oYbeI-Xvi?usp=sharing) |
+| Online alignment (Audio) | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pymatchmaker/mec2026_alignment_workshop/blob/main/online_alignment/online_alignment_audio.ipynb) |
+| Online alignment (Symbolic) | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pymatchmaker/mec2026_alignment_workshop/blob/main/online_alignment/online_alignment_symbolic.ipynb) |
 
 ## Abstract
 
@@ -18,16 +21,16 @@ In this half-day workshop we will provide a practical, hands-on overview of musi
 
 A hands-on notebook for **offline audio-to-audio alignment** — synchronising two recordings of the same piece with chroma features and MrMsDTW ([Sync Toolbox](https://github.com/meinardmueller/synctoolbox)), with time-scale-modification sonification ([libtsm](https://github.com/groupmm/libtsm)), chroma sonification ([libsoni](https://github.com/groupmm/libsoni)), warping-path CSV export, and Sonic Visualiser layers. It closes with a bonus on cross-instrument alignment (piano reduction ↔ orchestra) using Tchaikovsky's *Nutcracker*.
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pymatchmaker/mec2026_alignment_workshop/blob/offline-alignment/MEC2026_audio_audio_alignment.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pymatchmaker/mec2026_alignment_workshop/blob/main/offline_alignment/MEC2026_audio_audio_alignment.ipynb)
 
 Run it in **Google Colab** (no setup needed), or locally:
 
 ```bash
-pip install -r requirements.txt
-jupyter lab MEC2026_audio_audio_alignment.ipynb
+pip install -r offline_alignment/requirements.txt
+jupyter lab offline_alignment/MEC2026_audio_audio_alignment.ipynb
 ```
 
-All example audio is bundled in [`data_music/`](./data_music) and is openly licensed / public-domain: the Mozart *"Ah! vous dirai-je, maman"* main example, plus a Tchaikovsky *Nutcracker* (Op. 71a) piano–orchestra pair for the cross-instrument bonus. You can also swap in your own recordings via file upload or YouTube links.
+All example audio is bundled in [`offline_alignment/data_music/`](./offline_alignment/data_music) and is openly licensed / public-domain: the Mozart *"Ah! vous dirai-je, maman"* main example, plus a Tchaikovsky *Nutcracker* (Op. 71a) piano–orchestra pair for the cross-instrument bonus. You can also swap in your own recordings via file upload or YouTube links.
 
 ## LICENSE
 
